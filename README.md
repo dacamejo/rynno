@@ -15,3 +15,10 @@ Rynno is a trip-aware playlist companion that turns shared SBB, Google Maps, or 
 - Finalize the OAuth scopes and token lifecycle so the UX can offer both manual share and seamless auto-import experiences.
 - Define the data contracts that feed the playlist mood mapper and reminder scheduler so we can prototype the backend API.
 - Once the docs are approved, we can spin up the actual services (Spotify OAuth server, trip parsers, notifier).
+
+## Local development
+
+```bash
+pnpm install # or npm install
+pnpm start   # or npm start
+```

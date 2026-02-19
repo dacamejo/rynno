@@ -1,0 +1,12 @@
+{
+  "name": "rynno",
+  "version": "0.1.0",
+  "description": "Trip-aware playlist companion backend",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "express": "^4.19.0"
+  }
+}
