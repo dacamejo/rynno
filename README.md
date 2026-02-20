@@ -30,7 +30,3 @@ npm run db:migrate
 ```
 
 The migration runner applies all SQL files in `db/migrations/` and tracks execution in `schema_migrations`.
-
-## Working rules
-
-The working rules that guide this repo are documented in `workflow_rules.md` (synced with the agent’s memory). Those rules cover repo sync, commit/push discipline, and the unsupervised dev/test/PR loops we follow until the product settles.
