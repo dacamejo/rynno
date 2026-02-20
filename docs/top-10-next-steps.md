@@ -11,13 +11,14 @@ This prioritized to-do list translates the current product vision and architectu
 - **Definition of done:** A user can share from SBB/Google and land in Rynno with parsed trip data prefilled.
 - **Status update:** Implemented via `manifest.webmanifest` share target config, `sw.js` POST interception + payload cache persistence, and `/share-target` route with loading/success/fallback manual ingest states.
 
-## 2) Harden parser adapters for SBB + Google with confidence scoring
+## 2) ✅ Harden parser adapters for SBB + Google with confidence scoring *(completed)*
 - **Why now:** Reliable trip normalization is the foundation for both playlists and reminders.
 - **Deliverables:**
   - Complete source-specific adapters for SBB URL parsing and Google Maps direction links.
   - Add validation pipeline and confidence scoring (<70 prompts for manual correction).
   - Store canonical + raw payload consistently for debugging.
 - **Definition of done:** Ingest success rate and parse quality telemetry are available for both sources.
+- **Status update:** Added source-specific Google Maps adapter support plus enhanced SBB share-link parsing, implemented parser validation with confidence-based manual correction flags (<70), and standardized canonical metadata persistence with raw payload + parser diagnostics.
 
 ## 3) Implement relational persistence model and migrations
 - **Why now:** The docs call for durable trip/user/token/reminder records; current progress depends on stable schema.
