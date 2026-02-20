@@ -85,3 +85,79 @@ test('feedback list rejects invalid limit query with validation envelope', async
     assert.ok(payload.requestId);
   });
 });
+
+
+test('playlist generation validates missing spotify credentials at boundary', async () => {
+  await withServer(async (baseUrl) => {
+    const response = await fetch(`${baseUrl}/api/v1/playlists/generate`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ trip: { tripId: 't1' } })
+    });
+    const payload = await response.json();
+
+    assert.equal(response.status, 400);
+    assert.equal(payload.code, 'VALIDATION_ERROR');
+    assert.ok(payload.requestId);
+  });
+});
+
+test('trip reminder creation validates numeric leadMinutes', async () => {
+  await withServer(async (baseUrl) => {
+    const response = await fetch(`${baseUrl}/api/v1/trips/trip-123/reminders`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ leadMinutes: 'not-a-number' })
+    });
+    const payload = await response.json();
+
+    assert.equal(response.status, 400);
+    assert.equal(payload.code, 'VALIDATION_ERROR');
+    assert.equal(payload.error, 'leadMinutes must be numeric when provided.');
+    assert.ok(payload.requestId);
+  });
+});
+
+test('auth token refresh validates required userId', async () => {
+  await withServer(async (baseUrl) => {
+    const response = await fetch(`${baseUrl}/api/spotify/refresh`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({})
+    });
+    const payload = await response.json();
+
+    assert.equal(response.status, 400);
+    assert.equal(payload.code, 'VALIDATION_ERROR');
+    assert.equal(payload.error, 'Missing userId.');
+    assert.ok(payload.requestId);
+  });
+});
+
+test('feedback event creation validates supported eventType', async () => {
+  await withServer(async (baseUrl) => {
+    const response = await fetch(`${baseUrl}/api/v1/feedback/events`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ eventType: 'unknown_type' })
+    });
+    const payload = await response.json();
+
+    assert.equal(response.status, 400);
+    assert.equal(payload.code, 'VALIDATION_ERROR');
+    assert.match(payload.error, /Unsupported eventType/);
+    assert.ok(payload.requestId);
+  });
+});
+
+test('feedback dashboard validates numeric days query', async () => {
+  await withServer(async (baseUrl) => {
+    const response = await fetch(`${baseUrl}/api/v1/feedback/dashboard?days=oops`);
+    const payload = await response.json();
+
+    assert.equal(response.status, 400);
+    assert.equal(payload.code, 'VALIDATION_ERROR');
+    assert.equal(payload.error, 'days must be numeric when provided.');
+    assert.ok(payload.requestId);
+  });
+});

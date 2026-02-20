@@ -146,9 +146,9 @@ This can be introduced module-by-module without a full rewrite.
    - `initDb` now supports provider injection for deterministic tests.
 3. **Isolate playlist domain logic** from Spotify API by introducing a `RecommendationProvider` adapter interface — ✅ **Completed**.
    - Added `services/recommendationProvider.js` and updated playlist recommendation/audio-feature retrieval to depend on the adapter.
-4. **Expand unit tests for pure domain functions and add API contract tests for route boundaries** — 🟡 **In progress**.
+4. **Expand unit tests for pure domain functions and add API contract tests for route boundaries** — ✅ **Completed**.
    - Added playlist domain unit tests for recommendation param shaping, deduping, and guardrail mutation behavior.
-   - Added API contract coverage for feedback query validation boundary.
+   - Expanded API contract validation coverage across trips, playlists, auth refresh, feedback events, feedback dashboard, and reminder dispatch boundaries.
 
 ## Concrete improvement backlog (prioritized)
 
