@@ -4,6 +4,13 @@ const spotifyClient = require('./spotifyClient');
 const { INSTRUMENTATION_GENRE_HINTS } = seedCatalog;
 
 const MAX_GUARDRAIL_ATTEMPTS = 3;
+const LANGUAGE_KEYWORD_HINTS = {
+  english: ['the', 'love', 'night', 'city', 'train'],
+  'swiss german': ['nacht', 'liebi', 'züri', 'zueri', 'chum', 'bahn'],
+  german: ['nacht', 'liebe', 'stadt', 'zug', 'bahn'],
+  french: ['amour', 'nuit', 'ville', 'gare', 'bonjour'],
+  italian: ['amore', 'notte', 'città', 'stazione', 'ciao']
+};
 
 async function resolveSpotifyContext(spotify = {}) {
   const { accessToken, refreshToken, userId } = spotify;
@@ -118,8 +125,10 @@ function evaluateGuardrails(tracks = [], features = [], profile) {
   let explicitIssues = 0;
   let energyIssues = 0;
   let instrumentationIssues = 0;
+  let languageIssues = 0;
   let energyDeltaTotal = 0;
   let energyDirectionTotal = 0;
+  let firstTrackIssue = null;
 
   for (let i = 0; i < sampleSize; i += 1) {
     const track = tracks[i];
@@ -145,6 +154,15 @@ function evaluateGuardrails(tracks = [], features = [], profile) {
     if (instrumentationFail) {
       instrumentationIssues += 1;
     }
+
+    const languageFail = failsLanguageFitCheck(track, profile.languagePreference);
+    if (languageFail) {
+      languageIssues += 1;
+    }
+
+    if (i === 0) {
+      firstTrackIssue = getFirstTrackIssue(track, featuresEntry, profile);
+    }
   }
 
   const avgEnergyDelta = sampleSize === 0 ? 0 : energyDeltaTotal / sampleSize;
@@ -160,17 +178,67 @@ function evaluateGuardrails(tracks = [], features = [], profile) {
   if (instrumentationIssues) {
     reasons.push('Instrumentation cues did not align with the requested vibe.');
   }
+  if (languageIssues) {
+    reasons.push('Track metadata appears off-language for the requested preference.');
+  }
+  if (firstTrackIssue) {
+    reasons.push(firstTrackIssue);
+  }
 
   return {
-    pass: explicitIssues === 0 && energyIssues <= 2 && instrumentationIssues <= 1,
+    pass:
+      explicitIssues === 0 &&
+      energyIssues <= 2 &&
+      instrumentationIssues <= 1 &&
+      languageIssues <= 2 &&
+      !firstTrackIssue,
     sampleSize,
     explicitIssues,
     energyIssues,
     instrumentationIssues,
+    languageIssues,
+    firstTrackIssue,
     avgEnergyDelta,
     avgEnergyDirection,
     reasons
   };
+}
+
+function getFirstTrackIssue(track, featuresEntry, profile) {
+  if (!track || !featuresEntry) {
+    return null;
+  }
+
+  if (profile.lyricSafety === 'clean' && track.explicit) {
+    return 'First track failed quality check because it is explicit for a clean profile.';
+  }
+
+  const firstTrackEnergyDelta = Math.abs(featuresEntry.energy - profile.targetEnergy);
+  if (firstTrackEnergyDelta > 0.2) {
+    return 'First track failed quality check because it misses the target energy too far.';
+  }
+
+  if (typeof track.popularity === 'number' && track.popularity < 18) {
+    return 'First track failed quality check due to very low confidence/popularity.';
+  }
+
+  return null;
+}
+
+function failsLanguageFitCheck(track, languagePreference) {
+  if (!languagePreference || !track) {
+    return false;
+  }
+
+  const normalized = String(languagePreference).trim().toLowerCase();
+  const hints = LANGUAGE_KEYWORD_HINTS[normalized];
+  if (!hints || !hints.length) {
+    return false;
+  }
+
+  const artistNames = (track.artists || []).map((artist) => artist.name || '').join(' ');
+  const haystack = `${track.name || ''} ${artistNames}`.toLowerCase();
+  return !hints.some((hint) => haystack.includes(hint));
 }
 
 function failsInstrumentationCheck(featuresEntry, cue) {
@@ -210,6 +278,10 @@ function adjustProfileForGuardrail(profile, guardrail) {
     profile.minEnergy = Math.max(0.05, profile.targetEnergy - 0.2);
   }
 
+  if (guardrail.languageIssues > 1 && profile.languagePreference) {
+    profile.languagePreference = String(profile.languagePreference).toLowerCase();
+  }
+
   profile.maxGuardrailEnergyDelta = Math.min(0.5, (profile.maxGuardrailEnergyDelta || 0.35) + 0.05);
 }
 
@@ -223,6 +295,12 @@ function adjustSeedsForGuardrail(seeds, guardrail, profile) {
   }
   if (guardrail.energyIssues > 2) {
     seeds.seedGenres = mergeGenres(seeds.seedGenres, ['dance', 'ambient']);
+  }
+  if (guardrail.languageIssues > 1) {
+    seeds.seedGenres = mergeGenres(seeds.seedGenres, ['world-music', 'singer-songwriter']);
+  }
+  if (guardrail.firstTrackIssue) {
+    seeds.seedGenres = mergeGenres(seeds.seedGenres, ['pop', 'indie-pop']);
   }
   seeds.seedGenres = seeds.seedGenres.slice(0, 5);
 
@@ -304,6 +382,7 @@ async function generatePlaylist({ trip, preferences = {}, spotify = {} }) {
 
   let guardrailResult = null;
   let recommendedTracks = null;
+  const guardrailAttempts = [];
 
   for (let attempt = 1; attempt <= MAX_GUARDRAIL_ATTEMPTS; attempt += 1) {
     const tracks = await fetchRecommendationsForPlans(
@@ -317,6 +396,13 @@ async function generatePlaylist({ trip, preferences = {}, spotify = {} }) {
     guardrailResult = evaluateGuardrails(tracks, features, moodProfile);
     guardrailResult.attempt = attempt;
     guardrailResult.trackCount = tracks.length;
+    guardrailAttempts.push({
+      ...guardrailResult,
+      tags: moodProfile.tags,
+      timeSegment: moodProfile.timeSegment,
+      languagePreference: moodProfile.languagePreference,
+      instrumentationCue: moodProfile.instrumentationCue
+    });
 
     if (guardrailResult.pass) {
       recommendedTracks = tracks;
@@ -364,10 +450,16 @@ async function generatePlaylist({ trip, preferences = {}, spotify = {} }) {
     },
     tracks: formatTracks(curatedTracks),
     guardrailReport: guardrailResult,
+    guardrailAttempts,
     spotifyUser: spotifyContext.profile?.display_name || spotifyContext.userId
   };
 }
 
 module.exports = {
-  generatePlaylist
+  generatePlaylist,
+  __internals: {
+    evaluateGuardrails,
+    failsLanguageFitCheck,
+    getFirstTrackIssue
+  }
 };
