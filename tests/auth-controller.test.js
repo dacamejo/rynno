@@ -50,7 +50,7 @@ test('spotify auth callback redirects back to app instead of returning raw JSON 
 
   const controller = createAuthController({
     spotifyClient,
-    upsertUser: async () => {},
+    upsertUser: async () => ({ user_id: 'user-1' }),
     saveOAuthToken: async () => {},
     getOAuthToken: async () => null
   });
@@ -86,3 +86,46 @@ test('spotify auth callback redirects back to app instead of returning raw JSON 
   }
 });
 
+test('spotify callback persists tokens against existing user id when spotify account already exists', async () => {
+  const previousClientId = process.env.SPOTIFY_CLIENT_ID;
+  process.env.SPOTIFY_CLIENT_ID = 'client-id';
+
+  const spotifyClient = {
+    async exchangeAuthorizationCode() {
+      return {
+        accessToken: 'access-token',
+        refreshToken: 'refresh-token',
+        expiresIn: 3600,
+        scope: 'playlist-modify-private',
+        tokenType: 'Bearer'
+      };
+    },
+    async getUserProfile() {
+      return { id: 'spotify-user-123', display_name: 'Music Rider', email: null, country: null, images: [] };
+    }
+  };
+
+  const savedTokens = [];
+  const controller = createAuthController({
+    spotifyClient,
+    upsertUser: async () => ({ user_id: 'existing-user-77' }),
+    saveOAuthToken: async (payload) => savedTokens.push(payload),
+    getOAuthToken: async () => null
+  });
+
+  try {
+    const authReq = createReq({ query: { userId: 'new-session-user', returnTo: 'https://example.com/' } });
+    const authRes = createRes();
+    controller.spotifyAuth(authReq, authRes);
+
+    const state = new URL(authRes.redirectedTo).searchParams.get('state');
+    const callbackRes = createRes();
+    await controller.spotifyCallback(createReq({ query: { code: 'auth-code', state } }), callbackRes);
+
+    assert.equal(savedTokens[0].userId, 'existing-user-77');
+    assert.equal(new URL(callbackRes.redirectedTo).searchParams.get('userId'), 'existing-user-77');
+  } finally {
+    if (previousClientId == null) delete process.env.SPOTIFY_CLIENT_ID;
+    else process.env.SPOTIFY_CLIENT_ID = previousClientId;
+  }
+});
