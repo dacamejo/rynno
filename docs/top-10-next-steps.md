@@ -38,13 +38,14 @@ This prioritized to-do list translates the current product vision and architectu
 - **Definition of done:** Connected user can authorize once and continue generating playlists without manual re-login until refresh revocation.
 - **Status update:** Added Spotify Authorization Code endpoints (`/auth/spotify`, `/auth/spotify/callback`) with expiring state validation, encrypted token persistence for `oauth_tokens`, a protected refresh endpoint (`/api/spotify/refresh`) with re-auth signaling on invalid grants, and token metadata diagnostics via `/api/spotify/tokens/:userId`.
 
-## 5) Build v1 mood mapper + seed orchestration engine
+## 5) ✅ Build v1 mood mapper + seed orchestration engine *(completed)*
 - **Why now:** The core value is “trip-aware, editorial-feeling playlists,” not just generic recommendations.
 - **Deliverables:**
   - Encode `target_energy`, `target_valence`, `era_bias`, and instrumentation rules.
   - Create seed-cluster selection logic and weighted recommendation requests.
   - Version heuristics (`RhythmProfile_v1`) for safe tuning.
 - **Definition of done:** Playlist generation reflects trip timeline + tags in a repeatable, measurable way.
+- **Status update:** Added explicit `RhythmProfile_v1` versioning in the mood profile response, expanded seed orchestration with weighted multi-cluster recommendation plans, and covered the v1 mood engine with automated unit tests for profile outputs and weighted plans.
 
 ## 6) Add playlist quality guardrails and auto-rerun logic
 - **Why now:** Premium UX depends on trust in first tracks and tag fit.

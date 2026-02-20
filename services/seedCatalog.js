@@ -112,6 +112,25 @@ function chooseSeeds(profile = {}, trip = {}, preferences = {}) {
 
   const summary = sortedGenres.slice(0, 4);
 
+  const sortedClusters = Object.entries(clusterScores)
+    .sort((a, b) => b[1] - a[1])
+    .map(([clusterId, weight]) => ({ clusterId, weight }));
+  const topClusterTotal = sortedClusters
+    .slice(0, 3)
+    .reduce((acc, entry) => acc + entry.weight, 0);
+
+  const recommendationPlans = sortedClusters.slice(0, 3).map((entry) => {
+    const cluster = CLUSTERS.find((item) => item.id === entry.clusterId);
+    const clusterGenres = cluster?.genres || [];
+    const instrumentationHints = INSTRUMENTATION_GENRE_HINTS[profile.instrumentationCue] || [];
+    const blended = [...new Set([...clusterGenres, ...instrumentationHints, ...sortedGenres])];
+    return {
+      clusterId: entry.clusterId,
+      weight: Number((entry.weight / (topClusterTotal || 1)).toFixed(3)),
+      seedGenres: blended.slice(0, 5)
+    };
+  });
+
   return {
     seedGenres,
     regionSurpriseGenres: regionSeeds.length ? [...new Set(regionSeeds)] : ['world', 'latin'],
@@ -119,7 +138,8 @@ function chooseSeeds(profile = {}, trip = {}, preferences = {}) {
       .filter(([, weight]) => weight > 1)
       .map(([clusterId]) => clusterId),
     summary,
-    totalGenreWeights: genreWeights
+    totalGenreWeights: genreWeights,
+    recommendationPlans
   };
 }
 
