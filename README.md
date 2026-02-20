@@ -23,6 +23,20 @@ pnpm install # or npm install
 pnpm start   # or npm start
 ```
 
+### Required Spotify OAuth environment variables
+
+Spotify OAuth is a **3-party flow**: user + your app + Spotify. Even though the user logs in and grants consent, Spotify still requires your backend to identify the app that initiated the flow.
+
+Set these variables before starting the server:
+
+```bash
+SPOTIFY_CLIENT_ID=your_spotify_app_client_id
+SPOTIFY_CLIENT_SECRET=your_spotify_app_client_secret
+```
+
+- `SPOTIFY_CLIENT_ID` is sent on `/auth/spotify` so Spotify can show consent for your registered app.
+- `SPOTIFY_CLIENT_SECRET` is used server-side when exchanging auth codes for tokens (never expose it in frontend code).
+
 ## Database migrations
 
 ```bash

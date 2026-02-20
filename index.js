@@ -164,7 +164,10 @@ app.get('/auth/spotify', (req, res) => {
 
   const clientId = process.env.SPOTIFY_CLIENT_ID;
   if (!clientId) {
-    return res.status(500).json({ error: 'Missing SPOTIFY_CLIENT_ID environment variable.' });
+    return res.status(500).json({
+      error:
+        'Missing SPOTIFY_CLIENT_ID environment variable. Spotify OAuth still needs your app credentials on the server so Spotify knows which application is requesting user consent.'
+    });
   }
 
   const userId = resolveUserId(req.query);
