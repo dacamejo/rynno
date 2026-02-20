@@ -1,11 +1,17 @@
 const express = require('express');
 const { asyncHandler } = require('../../shared/errors');
+const { validate } = require('../../shared/validation');
+const {
+  validateCreateEventBody,
+  validateListEventsQuery,
+  validateDashboardQuery
+} = require('./feedback.schemas');
 
 function createFeedbackRouter(controller) {
   const router = express.Router();
-  router.post('/api/v1/feedback/events', asyncHandler(controller.createEvent));
-  router.get('/api/v1/feedback/events', asyncHandler(controller.listEvents));
-  router.get('/api/v1/feedback/dashboard', asyncHandler(controller.dashboard));
+  router.post('/api/v1/feedback/events', validate({ body: validateCreateEventBody }), asyncHandler(controller.createEvent));
+  router.get('/api/v1/feedback/events', validate({ query: validateListEventsQuery }), asyncHandler(controller.listEvents));
+  router.get('/api/v1/feedback/dashboard', validate({ query: validateDashboardQuery }), asyncHandler(controller.dashboard));
   return router;
 }
 

@@ -125,17 +125,16 @@ This can be introduced module-by-module without a full rewrite.
 1. **Split `index.js` into routers + controllers + bootstrap** — ✅ **Completed**.
    - `index.js` now only starts the app and DB bootstrap.
    - Routing/controller composition moved to `src/app/createServer.js` and `src/modules/*`.
-2. **Introduce schema validation for all public endpoints** — 🟡 **Partially completed**.
-   - Shared validation middleware exists and is applied to key endpoints (auth refresh, trip ingest/status/refresh/reminders, playlist generate).
-   - Remaining gap: some query/body contracts are still lightweight/manual and should be migrated to stronger schema definitions (e.g., Zod/Joi) with full endpoint coverage.
+2. **Introduce schema validation for all public endpoints** — ✅ **Completed**.
+   - Added per-module endpoint schema validators (`*.schemas.js`) and applied body/query/params validation across public route surfaces.
 3. **Create shared error mapper middleware** — ✅ **Completed**.
    - Shared error types + centralized Express error middleware introduced, reducing repeated route-level response shaping.
 4. **Add request ID middleware + structured logger** — ✅ **Completed**.
    - Request IDs are added to request/response and request completion is logged in structured JSON.
 
-### Follow-up actions to close Priority 0 completely
-- Upgrade current validator helpers to explicit per-endpoint schema modules and enforce consistent query/body/params typing across all routes.
-- Add API contract/smoke tests that assert standardized error envelope + `requestId` presence for representative success/failure flows.
+### Follow-up actions after Priority 0
+- Consider migrating custom validators to a stronger schema library (e.g., Zod/Joi) for richer coercion and reusable OpenAPI generation.
+- Expand API contract test coverage from representative flows to all high-traffic endpoint groups.
 
 ## Concrete improvement backlog (prioritized)
 
