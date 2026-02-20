@@ -10,6 +10,8 @@ services:
     envVars:
       - key: NODE_ENV
         value: production
+      - key: DATABASE_URL
+        sync: false
     healthCheckPath: /health
     healthCheckIntervalSeconds: 15
     healthCheckTimeoutSeconds: 10
