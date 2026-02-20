@@ -29,6 +29,7 @@ async function loadFallbackStore() {
   fallbackStore.trips = fallbackStore.trips || {};
   fallbackStore.users = fallbackStore.users || {};
   fallbackStore.oauthTokens = fallbackStore.oauthTokens || {};
+  fallbackStore.reminders = fallbackStore.reminders || {};
 }
 
 async function persistFallbackStore() {
@@ -41,14 +42,21 @@ async function ensureTablesExist() {
     `SELECT
       to_regclass('public.trips') AS trips_table,
       to_regclass('public.users') AS users_table,
-      to_regclass('public.oauth_tokens') AS oauth_tokens_table;`
+      to_regclass('public.oauth_tokens') AS oauth_tokens_table,
+      to_regclass('public.reminders') AS reminders_table;`
   );
   if (!result.rows[0]?.trips_table) {
     throw new Error('Missing `trips` table. Run `npm run db:migrate` before starting the server.');
   }
-  if (!result.rows[0]?.users_table || !result.rows[0]?.oauth_tokens_table) {
+  if (!result.rows[0]?.users_table || !result.rows[0]?.oauth_tokens_table || !result.rows[0]?.reminders_table) {
     throw new Error('Missing auth-related tables. Run `npm run db:migrate` before starting the server.');
   }
+}
+
+function getTripWindow(entry = {}) {
+  const startsAt = entry.canonical?.firstDeparture || entry.metadata?.firstDeparture || null;
+  const endsAt = entry.canonical?.finalArrival || entry.metadata?.finalArrival || null;
+  return { startsAt, endsAt };
 }
 
 async function initDb() {
@@ -75,26 +83,33 @@ function transformRow(row) {
 }
 
 async function saveTripEntry(tripId, entry) {
+  const { startsAt, endsAt } = getTripWindow(entry);
   if (pool) {
     await pool.query(
-      `INSERT INTO trips (trip_id, status, canonical, raw_payload, source, metadata, last_updated, errors, updated_at)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,NOW())
+      `INSERT INTO trips (trip_id, user_id, status, canonical, raw_payload, source, metadata, starts_at, ends_at, last_updated, errors, updated_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,NOW())
        ON CONFLICT (trip_id) DO UPDATE SET
+         user_id = COALESCE(EXCLUDED.user_id, trips.user_id),
          status = EXCLUDED.status,
          canonical = EXCLUDED.canonical,
          raw_payload = EXCLUDED.raw_payload,
          source = EXCLUDED.source,
          metadata = EXCLUDED.metadata,
+         starts_at = COALESCE(EXCLUDED.starts_at, trips.starts_at),
+         ends_at = COALESCE(EXCLUDED.ends_at, trips.ends_at),
          last_updated = EXCLUDED.last_updated,
          errors = EXCLUDED.errors,
          updated_at = NOW();`,
       [
         tripId,
+        entry.metadata?.userId || null,
         entry.status,
         entry.canonical,
         entry.rawPayload,
         entry.source,
         entry.metadata,
+        startsAt,
+        endsAt,
         entry.lastUpdated,
         entry.errors
       ]
@@ -116,6 +131,131 @@ async function getTripEntry(tripId) {
   }
 
   return fallbackStore.trips[tripId] || null;
+}
+
+async function createReminder({ tripId, userId = null, channel = 'in_app', scheduledFor, metadata = {} }) {
+  if (pool) {
+    const result = await pool.query(
+      `INSERT INTO reminders (trip_id, user_id, channel, status, scheduled_for, metadata, updated_at)
+       VALUES ($1,$2,$3,'scheduled',$4,$5,NOW())
+       RETURNING reminder_id, trip_id, user_id, channel, status, scheduled_for, sent_at, failure_reason, metadata, created_at, updated_at;`,
+      [tripId, userId, channel, scheduledFor, metadata]
+    );
+    return result.rows[0];
+  }
+
+  const reminderId = String(Date.now() + Math.floor(Math.random() * 1000));
+  const reminder = {
+    reminder_id: reminderId,
+    trip_id: tripId,
+    user_id: userId,
+    channel,
+    status: 'scheduled',
+    scheduled_for: scheduledFor,
+    sent_at: null,
+    failure_reason: null,
+    metadata,
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString()
+  };
+  fallbackStore.reminders[reminderId] = reminder;
+  await persistFallbackStore();
+  return reminder;
+}
+
+async function getReminder(reminderId) {
+  if (pool) {
+    const result = await pool.query(
+      `SELECT reminder_id, trip_id, user_id, channel, status, scheduled_for, sent_at, failure_reason, metadata, created_at, updated_at
+       FROM reminders
+       WHERE reminder_id = $1`,
+      [reminderId]
+    );
+    return result.rows[0] || null;
+  }
+
+  return fallbackStore.reminders[reminderId] || null;
+}
+
+async function listDueReminders(referenceIso, limit = 25) {
+  if (pool) {
+    const result = await pool.query(
+      `SELECT reminder_id, trip_id, user_id, channel, status, scheduled_for, sent_at, failure_reason, metadata, created_at, updated_at
+       FROM reminders
+       WHERE status = 'scheduled'
+         AND scheduled_for <= $1::timestamptz
+       ORDER BY scheduled_for ASC
+       LIMIT $2`,
+      [referenceIso, limit]
+    );
+    return result.rows;
+  }
+
+  return Object.values(fallbackStore.reminders)
+    .filter((item) => item.status === 'scheduled' && new Date(item.scheduled_for) <= new Date(referenceIso))
+    .sort((a, b) => new Date(a.scheduled_for) - new Date(b.scheduled_for))
+    .slice(0, limit);
+}
+
+async function markReminderStatus(reminderId, { status, sentAt = null, failureReason = null, metadataPatch = null }) {
+  if (pool) {
+    const result = await pool.query(
+      `UPDATE reminders
+       SET status = $2,
+           sent_at = $3,
+           failure_reason = $4,
+           metadata = CASE WHEN $5::jsonb IS NULL THEN metadata ELSE metadata || $5::jsonb END,
+           updated_at = NOW()
+       WHERE reminder_id = $1
+       RETURNING reminder_id, trip_id, user_id, channel, status, scheduled_for, sent_at, failure_reason, metadata, created_at, updated_at;`,
+      [reminderId, status, sentAt, failureReason, metadataPatch ? JSON.stringify(metadataPatch) : null]
+    );
+    return result.rows[0] || null;
+  }
+
+  const existing = fallbackStore.reminders[reminderId];
+  if (!existing) {
+    return null;
+  }
+
+  existing.status = status;
+  existing.sent_at = sentAt;
+  existing.failure_reason = failureReason;
+  if (metadataPatch && typeof metadataPatch === 'object') {
+    existing.metadata = { ...(existing.metadata || {}), ...metadataPatch };
+  }
+  existing.updated_at = new Date().toISOString();
+  await persistFallbackStore();
+  return existing;
+}
+
+async function listTripsForRefresh(referenceIso, horizonMinutes = 120, limit = 20) {
+  const upperBound = new Date(new Date(referenceIso).getTime() + horizonMinutes * 60 * 1000).toISOString();
+  if (pool) {
+    const result = await pool.query(
+      `SELECT trip_id, status, canonical, raw_payload, source, metadata, last_updated, errors
+       FROM trips
+       WHERE status = 'complete'
+         AND starts_at IS NOT NULL
+         AND starts_at >= $1::timestamptz
+         AND starts_at <= $2::timestamptz
+       ORDER BY starts_at ASC
+       LIMIT $3`,
+      [referenceIso, upperBound, limit]
+    );
+    return result.rows.map(transformRow).map((row, index) => ({ tripId: result.rows[index].trip_id, entry: row }));
+  }
+
+  return Object.entries(fallbackStore.trips)
+    .map(([tripId, entry]) => ({ tripId, entry }))
+    .filter(({ entry }) => {
+      if (entry.status !== 'complete') return false;
+      const startsAt = entry.canonical?.firstDeparture || null;
+      if (!startsAt) return false;
+      return new Date(startsAt) >= new Date(referenceIso) && new Date(startsAt) <= new Date(upperBound);
+    })
+    .sort((a, b) => new Date(a.entry.canonical.firstDeparture) - new Date(b.entry.canonical.firstDeparture))
+    .slice(0, limit);
 }
 
 async function upsertUser({ userId, email = null, spotifyUserId = null, locale = null, timezone = 'UTC' }) {
@@ -229,5 +369,10 @@ module.exports = {
   getTripEntry,
   upsertUser,
   saveOAuthToken,
-  getOAuthToken
+  getOAuthToken,
+  createReminder,
+  getReminder,
+  listDueReminders,
+  markReminderStatus,
+  listTripsForRefresh
 };

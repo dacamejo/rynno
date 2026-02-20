@@ -56,13 +56,14 @@ This prioritized to-do list translates the current product vision and architectu
 - **Definition of done:** Family/kids and tag-sensitive playlists meet guardrail thresholds before delivery.
 - **Status update:** Expanded guardrails to validate language-fit and first-track quality in addition to explicitness/energy/instrumentation, added auto re-weighting retries that enrich seed genres when checks fail, and now return per-attempt guardrail telemetry (tags, time segment, language preference, instrumentation cue) for context-driven analysis.
 
-## 7) Implement reminder scheduler + delay-aware refresh loop
+## 7) ✅ Implement reminder scheduler + delay-aware refresh loop *(completed)*
 - **Why now:** Timely reminders are a core promise and key differentiator.
 - **Deliverables:**
   - Build reminder creation, queueing, dispatch, and status tracking.
   - Add periodic trip refresh job for prognosis/delay updates.
   - Trigger optional playlist refresh for meaningful timing changes.
 - **Definition of done:** User receives accurate pre-departure reminder with playlist link and updated timing context.
+- **Status update:** Added reminder scheduling + status tracking endpoints, due-reminder dispatch workflow with sent/failed state transitions, and a delay-aware trip refresh loop that can trigger optional playlist regeneration when departure timing shifts exceed a configured threshold.
 
 ## 8) Deliver mobile-first core UI screens from UX spec
 - **Why now:** Adoption depends on a polished flow from trip review to Spotify handoff.
