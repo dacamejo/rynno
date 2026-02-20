@@ -30,6 +30,32 @@ For each trip we compute:
 
 These cues determine which seed clusters to sample and how to weight the Spotify Recommendations API calls. The system also enforces constraints (e.g., kids trips block explicit tracks, celebration trips require high valence/energy). We version these heuristics (e.g., `RhythmProfile_v1.0`) so we can tweak them based on feedback.
 
+### 3.1 Energy, valence, and time-of-day rules
+- **Sunrise / early commute (05:00-08:00):** target low-to-mid energy with rising valence, layering warm vocals or gentle synth pads to match the wake-up narrative. Acoustic instruments plus slow percussion keep the vibe calm while giving a sense of momentum.
+- **Daytime transfers (08:00-18:00):** lean into mid-energy tracks with bright percussion or guitar, balancing instrumental density so the playlist supports focus without being distracting. Valence depends on the tag (family/celebration = higher; solo/reflective = medium-low).
+- **Evening / arrival (18:00-22:00):** introduce cinematic and analog textures (strings, flavored pads) with wider dynamic ranges; valence is moderated so the narrative feels rewarding without overdriving energy, and we slide in longer-form tracks or extended mixes for scenic legs.
+- **Night / quiet journeys (22:00-03:00):** drop energy and keep valence steady or slightly positive. Lean on ambient, minimalist, or downtempo deep cuts; instrumentation cues include soft piano, field recordings, and sparse percussion.
+
+Each rule maps to heuristics tied to the parsed trip timeline (leg start/end). We align the `target_energy` with `leg.mode` (e.g., IC = `+10 energy` offset, S-Bahn = `baseline`, walking = `-5`) and adjust dynamically if delays change the timeline.
+
+### 3.2 Narrative transitions
+- **Anchor points:** The first 1-3 tracks set the tone for the trip’s “departure” moment. We prefer human-curated seeds that match the declared tag (e.g., a cinematic indie seed for celebration, gentle neo-soul for family) to build trust quickly.
+- **Leg transitions:** When the parser indicates an intermodal transfer (train → tram/bus), we insert transition tracks that either ease into the next energy zone or celebrate the pause (e.g., percussion-driven pieces for transfers, mellow strings for scenic arrivals).
+- **Surprises:** After 7-9 tracks we optionally insert a curated “surprise” that gently shifts region or instrumentation (a Brazilian acoustic singer, a French electro-pop interlude) to keep journeys fresh without jarring the rider. These surprises are weighted by `no-preference` tags and provide opportunities to surface global seeds.
+
+### 3.3 Instrumentation and regional cues
+- Instrumentation cues combine sensor data (sunlight, leg type, location) with declared preferences. Example heuristics:
+  - Alpine legs (from `preferredRegions`) trigger harmonica/fiddle strings referenced to Swiss folk for local resonance.
+  - Lake or coastal legs nudge toward lush pads, reverb-heavy guitars, or neo-classical piano.
+  - Urban transfers keep instrumentation lean (percussive electronica, percolating synths) to reflect motion.
+- We reserve a small “region surprise budget” (usually 1–2 tracks of 10) to highlight a local artist or instrumentation method, ensuring each playlist feels rooted without being literal.
+
+### 3.4 Heuristic guardrails and re-weighting
+- **Seed checks:** After seeding the initial recommendation set, we evaluate energy, explicitness, language, and instrumentation density. If the guardrails reject 2+ tracks for a kids/family trip, we rerun the recommendation call with stricter `lyric_safety` and a heavier weighting on clean, acoustic seeds.
+- **Dynamic re-weighting:** If skip rates or post-trip feedback indicate a mismatch (common for celebration vs. reflective tags), we bump the associated seed cluster’s weight (e.g., +15% to `Heritage grooves` if celebration trips flagged as “too mellow”).
+- **Fallback:** When a parsed trip lacks time signals or has ambiguous tags, we default to `no-preference` + mid energy, and we flag that playlist in the post-trip dashboard so a curator can review and annotate the heuristics.
+
+These heuristics allow the builder to behave like an editorial desk while still scaling across thousands of trips.
 ## 4. Quality assurance loops
 - **Pre-flight checks:** Evaluate the first 5 tracks for tag alignment (energy, explicitness, instrumentation). If the guardrail fails we re-run the recommendation stage with adjusted seeds or energy settings.
 - **User feedback:** After the trip the app prompts for a quick rating (thumbs up/down, or a 3-star scale) plus optional notes. That data adjusts seed weights and helps us surface problematic tags in an internal dashboard.

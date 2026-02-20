@@ -40,9 +40,18 @@ This document captures the parser design so we can reliably turn incoming journe
 2. Identify source and delegate to adapter.<br>
 3. Adapter returns canonical schema + tags/demographics (default `no preference`).<br>
 4. Pass to playlist builder (mood mapping + seeds) and notification scheduler.<br>
-5. Validate (e.g., ensure leg durations exist, at least one leg flagged). If data missing, fall back to multi-leg assumption (split journey based on heuristics) or ask user to confirm.
+5. Validate (e.g., ensure leg durations exist, at least one leg flagged). If data missing, fall back to multi-leg assumption (split journey based on heuristics) or ask user to confirm.<br>
+6. Emit telemetry (success, issues, parser latency) for observability and automated retries.
 
-## 6. Data we need from the user (optional but encouraged)
+## 6. Resilience heuristics and ambiguity handling
+- **Incomplete timestamps:** When only a departure time exists, we estimate arrival by sampling the most likely connection in `transport.opendata.ch` (or Google Directions) for the same route and calculating median durations per mode.
+- **Shared link without leg breakdown:** We infer stops using the platform data (e.g., SBB sections list) and build placeholder legs for each mode change; heuristics assign `instrumentation cues` based on the longest consecutive stretch of a particular mode.
+- **Language/region inference:** If the share link lacks explicit locale, we infer from station names (e.g., `Zürich HB` → `de-CH`) and fallback to the dominant language of the parsed step; this informs `preferredLanguages` and the playlist builder.
+- **Delay detection:** Prognosis data indicates delays—if `delay > 5 minutes`, we raise the playlist’s `target_energy` slightly to keep travelers upbeat and reschedule reminder notifications to align with the new arrival.
+- **Fallback for cross-border legs:** When a trip tail extends beyond Switzerland (detected via station IDs outside `CH`), we mark `crossBorder: true`, allow country-specific adapters to enrich the metadata, and default to the nearest available API for `preferredRegions`.
+- **Confidence score:** Each parsed trip emits a score (0-100) reflecting data completeness: presence of all legs, durations, locales, and prognoses. Scores below 70 trigger a lightweight follow-up prompt (“We need a few more details to fine-tune your playlist”) or route through a curator workflow.
+
+## 7. Data we need from the user (optional but encouraged)
 - Passenger profile: solo/couple/family/kids (drives mood and explicit filters).<br>
 - Preferred languages/regions (English/Swiss German/French/Latin) for localized seeds.<br>
 - Musical style hints (if they want calm, energetic, or unexpected).<br>
