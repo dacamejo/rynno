@@ -98,16 +98,17 @@ function createAuthController({ spotifyClient, upsertUser, saveOAuthToken, getOA
         const tokenResponse = await spotifyClient.exchangeAuthorizationCode({ code, redirectUri: buildSpotifyRedirectUri(req) });
         const profile = await spotifyClient.getUserProfile(tokenResponse.accessToken);
 
-        await upsertUser({
+        const user = await upsertUser({
           userId: authRecord.userId,
           email: profile.email || null,
           spotifyUserId: profile.id,
           locale: profile.country || null
         });
+        const resolvedUserId = user?.user_id || user?.userId || authRecord.userId;
 
         const expiresAt = new Date(Date.now() + (tokenResponse.expiresIn || 3600) * 1000).toISOString();
         await saveOAuthToken({
-          userId: authRecord.userId,
+          userId: resolvedUserId,
           provider: 'spotify',
           accessToken: tokenResponse.accessToken,
           refreshToken: tokenResponse.refreshToken,
@@ -124,7 +125,7 @@ function createAuthController({ spotifyClient, upsertUser, saveOAuthToken, getOA
         });
         const callbackParams = new URLSearchParams({
           spotifyAuth: 'connected',
-          userId: authRecord.userId,
+          userId: resolvedUserId,
           spotifyUserId: profile.id,
           expiresAt,
           displayName: profile.display_name || '',

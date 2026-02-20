@@ -4,19 +4,49 @@ function createOAuthRepository({ query, fallbackState, persistFallbackState }) {
   return {
     async upsertUser({ userId, email = null, spotifyUserId = null, locale = null, timezone = 'UTC' }) {
       if (query) {
-        const result = await query(
-          `INSERT INTO users (user_id, email, spotify_user_id, locale, timezone, updated_at)
-           VALUES ($1,$2,$3,$4,$5,NOW())
-           ON CONFLICT (user_id) DO UPDATE SET
-             email = COALESCE(EXCLUDED.email, users.email),
-             spotify_user_id = COALESCE(EXCLUDED.spotify_user_id, users.spotify_user_id),
-             locale = COALESCE(EXCLUDED.locale, users.locale),
-             timezone = COALESCE(EXCLUDED.timezone, users.timezone),
-             updated_at = NOW()
-           RETURNING user_id, email, spotify_user_id, locale, timezone;`,
-          [userId, email, spotifyUserId, locale, timezone]
-        );
-        return result.rows[0];
+        try {
+          const result = await query(
+            `INSERT INTO users (user_id, email, spotify_user_id, locale, timezone, updated_at)
+             VALUES ($1,$2,$3,$4,$5,NOW())
+             ON CONFLICT (user_id) DO UPDATE SET
+               email = COALESCE(EXCLUDED.email, users.email),
+               spotify_user_id = COALESCE(EXCLUDED.spotify_user_id, users.spotify_user_id),
+               locale = COALESCE(EXCLUDED.locale, users.locale),
+               timezone = COALESCE(EXCLUDED.timezone, users.timezone),
+               updated_at = NOW()
+             RETURNING user_id, email, spotify_user_id, locale, timezone;`,
+            [userId, email, spotifyUserId, locale, timezone]
+          );
+          return result.rows[0];
+        } catch (error) {
+          if (error?.code !== '23505' || error?.constraint !== 'users_spotify_user_id_key' || !spotifyUserId) {
+            throw error;
+          }
+
+          const reassigned = await query(
+            `UPDATE users
+             SET email = COALESCE($2, email),
+                 locale = COALESCE($3, locale),
+                 timezone = COALESCE($4, timezone),
+                 updated_at = NOW()
+             WHERE spotify_user_id = $1
+             RETURNING user_id, email, spotify_user_id, locale, timezone;`,
+            [spotifyUserId, email, locale, timezone]
+          );
+          return reassigned.rows[0];
+        }
+      }
+
+      if (spotifyUserId) {
+        const existingUser = Object.values(fallbackState.users).find((user) => user.spotify_user_id === spotifyUserId);
+        if (existingUser) {
+          existingUser.email = email || existingUser.email;
+          existingUser.locale = locale || existingUser.locale;
+          existingUser.timezone = timezone || existingUser.timezone;
+          existingUser.updated_at = new Date().toISOString();
+          await persistFallbackState();
+          return existingUser;
+        }
       }
 
       fallbackState.users[userId] = {
