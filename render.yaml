@@ -11,15 +11,7 @@ services:
       - key: NODE_ENV
         value: production
       - key: DATABASE_URL
-        value: postgresql://rynno_db_user:gXwnkxBsVZMq5uBksWdG9ok6z6QJYpYH@dpg-d6cdupi4d50c738235bg-a/rynno_db
-      - key: PGDATABASE
-        value: rynno_db
-      - key: PGPORT
-        value: "5432"
-      - key: PGUSER
-        value: rynno_db_user
-      - key: PGHOST
-        value: dpg-d6cdupi4d50c738235bg-a
+        sync: false
     healthCheckPath: /health
     healthCheckIntervalSeconds: 15
     healthCheckTimeoutSeconds: 10
