@@ -119,6 +119,23 @@ This can be introduced module-by-module without a full rewrite.
 - Structured logging with correlation IDs propagated to downstream calls.
 - Explicit config module that validates env variables at startup.
 
+## Progress update (2026-02-20)
+
+### Priority 0 status
+1. **Split `index.js` into routers + controllers + bootstrap** — ✅ **Completed**.
+   - `index.js` now only starts the app and DB bootstrap.
+   - Routing/controller composition moved to `src/app/createServer.js` and `src/modules/*`.
+2. **Introduce schema validation for all public endpoints** — ✅ **Completed**.
+   - Added per-module endpoint schema validators (`*.schemas.js`) and applied body/query/params validation across public route surfaces.
+3. **Create shared error mapper middleware** — ✅ **Completed**.
+   - Shared error types + centralized Express error middleware introduced, reducing repeated route-level response shaping.
+4. **Add request ID middleware + structured logger** — ✅ **Completed**.
+   - Request IDs are added to request/response and request completion is logged in structured JSON.
+
+### Follow-up actions after Priority 0
+- Consider migrating custom validators to a stronger schema library (e.g., Zod/Joi) for richer coercion and reusable OpenAPI generation.
+- Expand API contract test coverage from representative flows to all high-traffic endpoint groups.
+
 ## Concrete improvement backlog (prioritized)
 
 ### Priority 0 (1-2 sprints)
