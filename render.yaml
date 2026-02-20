@@ -1,0 +1,14 @@
+services:
+  - type: web
+    name: rynno-parser
+    env: node
+    plan: starter
+    region: iad
+    buildCommand: npm install
+    startCommand: npm start
+    envVars:
+      - key: NODE_ENV
+        value: production
+    healthCheckPath: /health
+    healthCheckIntervalSeconds: 15
+    healthCheckTimeoutSeconds: 10
