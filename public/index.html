@@ -208,7 +208,11 @@
         <h2>Settings & history</h2>
         <p class="small" id="sw-status">Registering service worker…</p>
         <p class="small" id="spotify-status">Spotify auth: Not connected</p>
-        <label class="small" for="spotify-user-id"><strong>Spotify user id</strong></label>
+        <div id="spotify-profile" class="row hidden" aria-live="polite">
+          <img id="spotify-avatar" alt="Spotify profile avatar" width="36" height="36" style="border-radius: 999px; object-fit: cover" />
+          <p class="small"><strong id="spotify-display-name">Not connected</strong><br /><span class="muted" id="spotify-account-id"></span></p>
+        </div>
+        <label class="small" for="spotify-user-id"><strong>Rynno user id</strong></label>
         <input class="toggle" id="spotify-user-id" placeholder="demo-user-123" />
         <button class="button button-secondary" id="open-oauth">Connect Spotify</button>
 

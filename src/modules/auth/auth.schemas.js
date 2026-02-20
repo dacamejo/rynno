@@ -5,6 +5,7 @@ function validateSpotifyAuthQuery(query) {
   if (!optionalString(query.tripId)) return 'tripId must be a string when provided.';
   if (!optionalString(query.scopes)) return 'scopes must be a string when provided.';
   if (!optionalString(query.showDialog)) return 'showDialog must be a string when provided.';
+  if (!optionalString(query.returnTo)) return 'returnTo must be a string when provided.';
   return null;
 }
 
