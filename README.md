@@ -1,20 +1,35 @@
 # Rynno
 
-Rynno is a trip-aware playlist companion that turns shared SBB, Google Maps, or auto-fetched journeys into curated Spotify playlists and timely notifications. The goal is to blend transportation schedules with soundtrack moods, giving travelers a seamless way to prep the right music for every leg of their trip.
+Rynno is a trip-aware playlist companion platform. It combines a mobile-first app experience (starting as a PWA and evolving toward native mobile) with backend services that turn shared SBB and Google Maps journeys into curated Spotify playlists and timely reminders.
+
+## About this repository
+This repository contains the current product foundation for Rynno, including both **user-facing app surfaces** and **backend orchestration**:
+
+- **Mobile-first app layer (PWA today):** share-target entry points, client app shell, and onboarding flows.
+- **Trip parsing and normalization:** ingestion logic for shared journey links and metadata enrichment.
+- **Mood heuristics + playlist building:** logic that maps trip context into Spotify-ready listening plans.
+- **Reminder scheduling:** services to notify users before departure and react to itinerary changes.
+- **Architecture and product docs:** OAuth flows, UX, infrastructure, roadmap, and future native-app direction.
+
+In short: this codebase is the end-to-end Rynno platform, with a backend-first implementation that supports a growing mobile product.
 
 ## Vision
 1. Capture journey metadata (start, end, transfers, duration, tags such as family/couple/solo) either by parsing shared links or through OAuth-backed integrations.
 2. Use that context to map moods/moments to Spotify playlists, keeping playback inside Spotify while our backend orchestrates the experience (playlist creation, reminders, updates).
-3. Notify travelers before departure so they can launch the playlist, and optionally update it mid-trip if the route shifts.
+3. Deliver a polished mobile experience: first as a high-quality PWA, then as a native app shell when product-market fit is validated.
 
-## This repository
-- `docs/oauth-flows.md` – detailed feasibility and sequence diagrams for Spotify, Google, and SBB/SwissPass authentication and token handling.
-- `docs/data-points.md` – professional breakdown of the structured metadata we can pull from each platform plus the data we will feed into the playlist builder and notification scheduler.
+## Repository map
+- `public/` – frontend PWA assets, app shell scripts, manifest, service worker, and share-target pages.
+- `index.js` – Express server entry point and API wiring.
+- `services/` – domain services (playlist generation, recommendation provider, reminders, Spotify client integration).
+- `src/` – shared utilities (trip parsing, token crypto, DB access).
+- `tests/` – API and domain tests for playlist logic, mood engine behavior, scheduler behavior, and contracts.
+- `docs/` – product, architecture, UX, OAuth, PWA plan, and roadmap documents (including native-app evolution).
 
 ## Next steps
-- Finalize the OAuth scopes and token lifecycle so the UX can offer both manual share and seamless auto-import experiences.
-- Define the data contracts that feed the playlist mood mapper and reminder scheduler so we can prototype the backend API.
-- Once the docs are approved, we can spin up the actual services (Spotify OAuth server, trip parsers, notifier).
+- Finalize OAuth scopes and token lifecycle so the UX can offer both manual share and seamless auto-import experiences.
+- Expand mobile-first UX implementation from docs into production-ready screens and flows.
+- Keep backend contracts stable so the PWA and future native wrapper can reuse the same trip, playlist, and reminder APIs.
 
 ## Local development
 
