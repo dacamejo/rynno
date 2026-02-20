@@ -22,3 +22,7 @@ Rynno is a trip-aware playlist companion that turns shared SBB, Google Maps, or 
 pnpm install # or npm install
 pnpm start   # or npm start
 ```
+
+## Working rules
+
+The working rules that guide this repo are documented in `workflow_rules.md` (synced with the agent’s memory). Those rules cover repo sync, commit/push discipline, and the unsupervised dev/test/PR loops we follow until the product settles.
