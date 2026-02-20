@@ -136,6 +136,20 @@ This can be introduced module-by-module without a full rewrite.
 - Consider migrating custom validators to a stronger schema library (e.g., Zod/Joi) for richer coercion and reusable OpenAPI generation.
 - Expand API contract test coverage from representative flows to all high-traffic endpoint groups.
 
+
+### Priority 1 status
+1. **Refactor `src/db.js` into repositories by bounded context** — ✅ **Completed**.
+   - Added dedicated repositories under `src/infra/repositories` for trips, OAuth/users, reminders, and feedback.
+   - `src/db.js` now composes repository instances instead of owning all persistence logic directly.
+2. **Separate fallback storage strategy** behind an interface (`StorageProvider`) — ✅ **Completed**.
+   - Introduced `StorageProvider` contract with `JsonFileStorageProvider` and `MemoryStorageProvider` implementations.
+   - `initDb` now supports provider injection for deterministic tests.
+3. **Isolate playlist domain logic** from Spotify API by introducing a `RecommendationProvider` adapter interface — ✅ **Completed**.
+   - Added `services/recommendationProvider.js` and updated playlist recommendation/audio-feature retrieval to depend on the adapter.
+4. **Expand unit tests for pure domain functions and add API contract tests for route boundaries** — 🟡 **In progress**.
+   - Added playlist domain unit tests for recommendation param shaping, deduping, and guardrail mutation behavior.
+   - Added API contract coverage for feedback query validation boundary.
+
 ## Concrete improvement backlog (prioritized)
 
 ### Priority 0 (1-2 sprints)

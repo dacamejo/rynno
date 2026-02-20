@@ -1,6 +1,7 @@
 const moodHeuristics = require('./moodHeuristics');
 const seedCatalog = require('./seedCatalog');
 const spotifyClient = require('./spotifyClient');
+const { createSpotifyRecommendationProvider } = require('./recommendationProvider');
 const { INSTRUMENTATION_GENRE_HINTS } = seedCatalog;
 
 const MAX_GUARDRAIL_ATTEMPTS = 3;
@@ -90,7 +91,7 @@ function mergeUniqueTracks(trackGroups = []) {
   return merged;
 }
 
-async function fetchRecommendationsForPlans(accessToken, profile, seeds, attempt) {
+async function fetchRecommendationsForPlans(accessToken, profile, seeds, attempt, recommendationProvider) {
   const plans = (seeds.recommendationPlans || []).length
     ? seeds.recommendationPlans
     : [{ weight: 1, seedGenres: seeds.seedGenres }];
@@ -99,7 +100,7 @@ async function fetchRecommendationsForPlans(accessToken, profile, seeds, attempt
   for (const plan of plans) {
     const requestedLimit = Math.max(5, Math.round((profile.playlistLength + 6) * (plan.weight || 0.34)));
     const params = buildRecommendationParams(profile, { seedGenres: plan.seedGenres }, attempt, requestedLimit);
-    const recommendations = await spotifyClient.getRecommendations(accessToken, params);
+    const recommendations = await recommendationProvider.getRecommendations(accessToken, params);
     plannedGroups.push(recommendations.tracks || []);
   }
 
@@ -109,7 +110,7 @@ async function fetchRecommendationsForPlans(accessToken, profile, seeds, attempt
   }
 
   const fallbackParams = buildRecommendationParams(profile, seeds, attempt);
-  const fallbackRecommendations = await spotifyClient.getRecommendations(accessToken, fallbackParams);
+  const fallbackRecommendations = await recommendationProvider.getRecommendations(accessToken, fallbackParams);
   return fallbackRecommendations.tracks || [];
 }
 
@@ -322,7 +323,7 @@ function mergeGenres(existing = [], additions = []) {
   return combined;
 }
 
-async function weaveRegionSurprises(accessToken, baseTracks, profile, seeds) {
+async function weaveRegionSurprises(accessToken, baseTracks, profile, seeds, recommendationProvider) {
   if (!profile.regionSurpriseBudget) {
     return baseTracks.slice(0, profile.playlistLength);
   }
@@ -332,7 +333,7 @@ async function weaveRegionSurprises(accessToken, baseTracks, profile, seeds) {
     seed_genres: seeds.regionSurpriseGenres.join(',')
   };
   regionParams.target_energy = Number(profile.targetEnergy.toFixed(2));
-  const regionRecommendations = await spotifyClient.getRecommendations(accessToken, regionParams);
+  const regionRecommendations = await recommendationProvider.getRecommendations(accessToken, regionParams);
   const surprises = (regionRecommendations.tracks || [])
     .filter((track) => !baseTracks.some((base) => base.id === track.id))
     .slice(0, profile.regionSurpriseBudget)
@@ -370,7 +371,7 @@ function formatTracks(tracks = []) {
   }));
 }
 
-async function generatePlaylist({ trip, preferences = {}, spotify = {} }) {
+async function generatePlaylist({ trip, preferences = {}, spotify = {}, recommendationProvider = createSpotifyRecommendationProvider() }) {
   if (!trip) {
     throw new Error('Trip data is required to build a playlist.');
   }
@@ -389,10 +390,11 @@ async function generatePlaylist({ trip, preferences = {}, spotify = {} }) {
       spotifyContext.accessToken,
       moodProfile,
       seedContext,
-      attempt
+      attempt,
+      recommendationProvider
     );
     const trackIds = tracks.map((track) => track.id).filter(Boolean);
-    const features = await spotifyClient.getAudioFeatures(spotifyContext.accessToken, trackIds);
+    const features = await recommendationProvider.getAudioFeatures(spotifyContext.accessToken, trackIds);
     guardrailResult = evaluateGuardrails(tracks, features, moodProfile);
     guardrailResult.attempt = attempt;
     guardrailResult.trackCount = tracks.length;
@@ -423,7 +425,8 @@ async function generatePlaylist({ trip, preferences = {}, spotify = {} }) {
     spotifyContext.accessToken,
     recommendedTracks.slice(0, moodProfile.playlistLength),
     moodProfile,
-    seedContext
+    seedContext,
+    recommendationProvider
   );
 
   const playlist = await spotifyClient.createPlaylist(spotifyContext.accessToken, spotifyContext.userId, {
@@ -460,6 +463,10 @@ module.exports = {
   __internals: {
     evaluateGuardrails,
     failsLanguageFitCheck,
-    getFirstTrackIssue
+    getFirstTrackIssue,
+    buildRecommendationParams,
+    mergeUniqueTracks,
+    adjustProfileForGuardrail,
+    adjustSeedsForGuardrail
   }
 };

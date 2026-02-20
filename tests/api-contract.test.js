@@ -1,8 +1,10 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { createServer } = require('../src/app/createServer');
+const db = require('../src/db');
 
 async function withServer(run) {
+  await db.initDb({ storageProvider: new db.__internals.MemoryStorageProvider() });
   const app = createServer();
   const server = await new Promise((resolve) => {
     const s = app.listen(0, '127.0.0.1', () => resolve(s));
@@ -70,4 +72,16 @@ test('internal-api-key rejections return standardized unauthorized envelope', as
       process.env.INTERNAL_API_KEY = previous;
     }
   }
+});
+
+
+test('feedback list rejects invalid limit query with validation envelope', async () => {
+  await withServer(async (baseUrl) => {
+    const response = await fetch(`${baseUrl}/api/v1/feedback/events?limit=abc`);
+    const payload = await response.json();
+
+    assert.equal(response.status, 400);
+    assert.equal(payload.code, 'VALIDATION_ERROR');
+    assert.ok(payload.requestId);
+  });
 });
