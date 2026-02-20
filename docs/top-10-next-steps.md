@@ -47,13 +47,14 @@ This prioritized to-do list translates the current product vision and architectu
 - **Definition of done:** Playlist generation reflects trip timeline + tags in a repeatable, measurable way.
 - **Status update:** Added explicit `RhythmProfile_v1` versioning in the mood profile response, expanded seed orchestration with weighted multi-cluster recommendation plans, and covered the v1 mood engine with automated unit tests for profile outputs and weighted plans.
 
-## 6) Add playlist quality guardrails and auto-rerun logic
+## 6) ✅ Add playlist quality guardrails and auto-rerun logic *(completed)*
 - **Why now:** Premium UX depends on trust in first tracks and tag fit.
 - **Deliverables:**
   - Pre-flight checks for explicitness, energy alignment, language fit, and first-track quality.
   - Automatic re-weight/retry path when guardrails fail.
   - Logging fields to analyze guardrail failures by tag/context.
 - **Definition of done:** Family/kids and tag-sensitive playlists meet guardrail thresholds before delivery.
+- **Status update:** Expanded guardrails to validate language-fit and first-track quality in addition to explicitness/energy/instrumentation, added auto re-weighting retries that enrich seed genres when checks fail, and now return per-attempt guardrail telemetry (tags, time segment, language preference, instrumentation cue) for context-driven analysis.
 
 ## 7) Implement reminder scheduler + delay-aware refresh loop
 - **Why now:** Timely reminders are a core promise and key differentiator.

@@ -185,6 +185,11 @@ function buildProfile(trip = {}, preferences = {}) {
 
   const lyricSafetyPriority = tags.includes('family') || tags.includes('kids') ? 'clean' : 'any';
   const lyricSafety = preferences.explicitOverride || lyricSafetyPriority;
+  const languagePreference =
+    preferences.languagePreference ||
+    preferences.language ||
+    preferences.locale ||
+    null;
 
   const playlistLength = preferences.playlistLength || 12;
   const regionSurpriseBudget = Math.min(2, (trip.preferredRegions?.length || 0) + 1);
@@ -212,6 +217,7 @@ function buildProfile(trip = {}, preferences = {}) {
     targetInstrumentalness: instrumentationTargets.targetInstrumentalness,
     playlistLength,
     lyricSafety,
+    languagePreference,
     regionSurpriseBudget,
     playlistName,
     playlistDescription,
