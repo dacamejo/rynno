@@ -2,13 +2,12 @@ const express = require('express');
 const crypto = require('crypto');
 const { runAdapter } = require('./src/tripParser');
 const { generatePlaylist } = require('./services/playlistBuilder');
+const { initDb, saveTripEntry, getTripEntry } = require('./src/db');
 
 const app = express();
 const port = process.env.PORT || 3000;
 
 app.use(express.json());
-
-const tripStore = new Map();
 
 app.get('/', (_req, res) => {
   res.json({
@@ -22,6 +21,18 @@ app.get('/health', (_req, res) => {
   res.json({ status: 'healthy', timestamp: new Date().toISOString() });
 });
 
+async function createStoreEntry({ tripId, canonical, payload, metadata, source, status, errors }) {
+  return {
+    status,
+    canonical,
+    rawPayload: payload,
+    source,
+    metadata,
+    lastUpdated: new Date().toISOString(),
+    errors: errors || []
+  };
+}
+
 app.post('/api/v1/trips/ingest', async (req, res) => {
   const { source, metadata = {}, payload, tripId: providedTripId } = req.body || {};
 
@@ -30,39 +41,40 @@ app.post('/api/v1/trips/ingest', async (req, res) => {
   }
 
   const tripId = providedTripId || crypto.randomUUID();
-  try {
-    const canonical = await runAdapter({ tripId, source, payload, metadata });
-    const storeEntry = {
-      status: 'complete',
-      canonical,
-      rawPayload: payload,
-      source: source || payload.source || 'manual',
-      metadata,
-      lastUpdated: new Date().toISOString(),
-      errors: []
-    };
-    tripStore.set(tripId, storeEntry);
+  const normalizedSource = source || payload.source || 'manual';
 
+  try {
+    const canonical = await runAdapter({ tripId, source: normalizedSource, payload, metadata });
+    const storeEntry = await createStoreEntry({
+      tripId,
+      canonical,
+      payload,
+      metadata,
+      source: normalizedSource,
+      status: 'complete'
+    });
+
+    await saveTripEntry(tripId, storeEntry);
     return res.status(201).json({ tripId, status: storeEntry.status, canonical });
   } catch (error) {
-    const storeEntry = {
-      status: 'error',
+    const storeEntry = await createStoreEntry({
+      tripId,
       canonical: null,
-      rawPayload: payload,
-      source: source || payload.source || 'manual',
+      payload,
       metadata,
-      lastUpdated: new Date().toISOString(),
+      source: normalizedSource,
+      status: 'error',
       errors: [error.message]
-    };
-    tripStore.set(tripId, storeEntry);
+    });
 
+    await saveTripEntry(tripId, storeEntry);
     console.error('Trip ingestion failed', { tripId, error: error.message });
     return res.status(400).json({ tripId, status: storeEntry.status, errors: storeEntry.errors });
   }
 });
 
-app.get('/api/v1/trips/:tripId/status', (req, res) => {
-  const entry = tripStore.get(req.params.tripId);
+app.get('/api/v1/trips/:tripId/status', async (req, res) => {
+  const entry = await getTripEntry(req.params.tripId);
   if (!entry) {
     return res.status(404).json({ error: 'Trip not found' });
   }
@@ -70,37 +82,42 @@ app.get('/api/v1/trips/:tripId/status', (req, res) => {
 });
 
 app.post('/api/v1/trips/:tripId/refresh', async (req, res) => {
-  const entry = tripStore.get(req.params.tripId);
+  const entry = await getTripEntry(req.params.tripId);
   if (!entry) {
     return res.status(404).json({ error: 'Trip not found' });
   }
 
-  entry.status = 'refreshing';
-  entry.lastUpdated = new Date().toISOString();
-  tripStore.set(req.params.tripId, entry);
+  const tripId = req.params.tripId;
+  const payload = entry.rawPayload || {};
+  const metadata = entry.metadata || {};
 
   try {
-    const canonical = await runAdapter({
-      tripId: req.params.tripId,
+    const canonical = await runAdapter({ tripId, source: entry.source, payload, metadata });
+    const updatedEntry = await createStoreEntry({
+      tripId,
+      canonical,
+      payload,
+      metadata,
       source: entry.source,
-      payload: entry.rawPayload,
-      metadata: entry.metadata
+      status: 'complete'
     });
-    entry.status = 'complete';
-    entry.canonical = canonical;
-    entry.errors = [];
-    entry.lastUpdated = new Date().toISOString();
-    tripStore.set(req.params.tripId, entry);
 
-    return res.json({ tripId: req.params.tripId, status: entry.status, canonical });
+    await saveTripEntry(tripId, updatedEntry);
+    return res.json({ tripId, status: updatedEntry.status, canonical });
   } catch (error) {
-    entry.status = 'error';
-    entry.errors = [error.message];
-    entry.lastUpdated = new Date().toISOString();
-    tripStore.set(req.params.tripId, entry);
+    const updatedEntry = await createStoreEntry({
+      tripId,
+      canonical: null,
+      payload,
+      metadata,
+      source: entry.source,
+      status: 'error',
+      errors: [error.message]
+    });
 
-    console.error('Trip refresh failed', { tripId: req.params.tripId, error: error.message });
-    return res.status(500).json({ tripId: req.params.tripId, status: entry.status, errors: entry.errors });
+    await saveTripEntry(tripId, updatedEntry);
+    console.error('Trip refresh failed', { tripId, error: error.message });
+    return res.status(500).json({ tripId, status: updatedEntry.status, errors: updatedEntry.errors });
   }
 });
 
@@ -123,6 +140,14 @@ app.post('/api/v1/playlists/generate', async (req, res) => {
   }
 });
 
-app.listen(port, () => {
-  console.log(`Rynno backend listening on port ${port}`);
+async function startServer() {
+  await initDb();
+  app.listen(port, () => {
+    console.log(`Rynno backend listening on port ${port}`);
+  });
+}
+
+startServer().catch((error) => {
+  console.error('Failed to start server', error);
+  process.exit(1);
 });
