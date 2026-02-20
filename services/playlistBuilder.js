@@ -26,8 +26,8 @@ async function resolveSpotifyContext(spotify = {}) {
   };
 }
 
-function buildRecommendationParams(profile, seeds, attempt = 1) {
-  const limit = Math.min(profile.playlistLength + 5, 25);
+function buildRecommendationParams(profile, seeds, attempt = 1, limitOverride) {
+  const limit = limitOverride || Math.min(profile.playlistLength + 5, 25);
   const params = {
     limit,
     seed_genres: seeds.seedGenres.join(',')
@@ -63,6 +63,47 @@ function buildRecommendationParams(profile, seeds, attempt = 1) {
   }
 
   return params;
+}
+
+
+function mergeUniqueTracks(trackGroups = []) {
+  const seen = new Set();
+  const merged = [];
+
+  trackGroups.forEach((group) => {
+    group.forEach((track) => {
+      if (!track?.id || seen.has(track.id)) {
+        return;
+      }
+      seen.add(track.id);
+      merged.push(track);
+    });
+  });
+
+  return merged;
+}
+
+async function fetchRecommendationsForPlans(accessToken, profile, seeds, attempt) {
+  const plans = (seeds.recommendationPlans || []).length
+    ? seeds.recommendationPlans
+    : [{ weight: 1, seedGenres: seeds.seedGenres }];
+
+  const plannedGroups = [];
+  for (const plan of plans) {
+    const requestedLimit = Math.max(5, Math.round((profile.playlistLength + 6) * (plan.weight || 0.34)));
+    const params = buildRecommendationParams(profile, { seedGenres: plan.seedGenres }, attempt, requestedLimit);
+    const recommendations = await spotifyClient.getRecommendations(accessToken, params);
+    plannedGroups.push(recommendations.tracks || []);
+  }
+
+  const merged = mergeUniqueTracks(plannedGroups);
+  if (merged.length) {
+    return merged;
+  }
+
+  const fallbackParams = buildRecommendationParams(profile, seeds, attempt);
+  const fallbackRecommendations = await spotifyClient.getRecommendations(accessToken, fallbackParams);
+  return fallbackRecommendations.tracks || [];
 }
 
 function evaluateGuardrails(tracks = [], features = [], profile) {
@@ -184,6 +225,13 @@ function adjustSeedsForGuardrail(seeds, guardrail, profile) {
     seeds.seedGenres = mergeGenres(seeds.seedGenres, ['dance', 'ambient']);
   }
   seeds.seedGenres = seeds.seedGenres.slice(0, 5);
+
+  if ((seeds.recommendationPlans || []).length) {
+    seeds.recommendationPlans = seeds.recommendationPlans.map((plan) => ({
+      ...plan,
+      seedGenres: mergeGenres(plan.seedGenres, seeds.seedGenres).slice(0, 5)
+    }));
+  }
 }
 
 function mergeGenres(existing = [], additions = []) {
@@ -258,9 +306,12 @@ async function generatePlaylist({ trip, preferences = {}, spotify = {} }) {
   let recommendedTracks = null;
 
   for (let attempt = 1; attempt <= MAX_GUARDRAIL_ATTEMPTS; attempt += 1) {
-    const params = buildRecommendationParams(moodProfile, seedContext, attempt);
-    const recommendations = await spotifyClient.getRecommendations(spotifyContext.accessToken, params);
-    const tracks = recommendations.tracks || [];
+    const tracks = await fetchRecommendationsForPlans(
+      spotifyContext.accessToken,
+      moodProfile,
+      seedContext,
+      attempt
+    );
     const trackIds = tracks.map((track) => track.id).filter(Boolean);
     const features = await spotifyClient.getAudioFeatures(spotifyContext.accessToken, trackIds);
     guardrailResult = evaluateGuardrails(tracks, features, moodProfile);

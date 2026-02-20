@@ -72,6 +72,8 @@ const INSTRUMENTATION_TARGETS = {
   playful: { targetDanceability: 0.75, targetAcousticness: 0.2, targetInstrumentalness: 0.1 }
 };
 
+const RHYTHM_PROFILE_VERSION = 'RhythmProfile_v1';
+
 function clamp(val, min = 0, max = 1) {
   return Math.max(min, Math.min(max, val));
 }
@@ -197,6 +199,7 @@ function buildProfile(trip = {}, preferences = {}) {
   const summary = `${timeSegment.name} trip adjusting ${instrumentationCue} instrumentation with ${tags.join(', ')}`;
 
   return {
+    profileVersion: RHYTHM_PROFILE_VERSION,
     tags,
     eraBias: [...eraBias],
     instrumentationCue,
