@@ -20,13 +20,14 @@ This prioritized to-do list translates the current product vision and architectu
 - **Definition of done:** Ingest success rate and parse quality telemetry are available for both sources.
 - **Status update:** Added source-specific Google Maps adapter support plus enhanced SBB share-link parsing, implemented parser validation with confidence-based manual correction flags (<70), and standardized canonical metadata persistence with raw payload + parser diagnostics.
 
-## 3) Implement relational persistence model and migrations
+## 3) ✅ Implement relational persistence model and migrations *(completed)*
 - **Why now:** The docs call for durable trip/user/token/reminder records; current progress depends on stable schema.
 - **Deliverables:**
   - Add migration tooling and initial schema (`users`, `trips`, `trip_legs`, `oauth_tokens`, `spotify_playlists`, `reminders`).
   - Add indexes for scheduler and query performance.
   - Add pre-deploy migration execution in deployment config.
 - **Definition of done:** Database is source-controlled, reproducible, and supports full lifecycle data.
+- **Status update:** Added source-controlled SQL migrations with the initial relational schema (`users`, `trips`, `trip_legs`, `oauth_tokens`, `spotify_playlists`, `reminders`) plus scheduler/query indexes, introduced a migration runner script with `schema_migrations` tracking, and wired Render pre-deploy migration execution via `npm run db:migrate`.
 
 ## 4) Complete Spotify OAuth + token lifecycle service
 - **Why now:** Playlist creation cannot scale without secure auth and refresh handling.

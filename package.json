@@ -4,7 +4,8 @@
   "description": "Trip-aware playlist companion backend",
   "main": "index.js",
   "scripts": {
-    "start": "node index.js"
+    "start": "node index.js",
+    "db:migrate": "node scripts/db/migrate.js"
   },
   "dependencies": {
     "axios": "^1.7.0",
