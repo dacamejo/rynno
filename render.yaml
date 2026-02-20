@@ -5,6 +5,7 @@ services:
     plan: starter
     region: iad
     buildCommand: npm install
+    preDeployCommand: npm run db:migrate
     startCommand: npm start
     envVars:
       - key: NODE_ENV

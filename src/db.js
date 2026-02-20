@@ -31,21 +31,19 @@ async function persistFallbackStore() {
   await fs.writeFile(FALLBACK_FILE, JSON.stringify(fallbackStore, null, 2));
 }
 
+async function ensureTripsTableExists() {
+  const result = await pool.query(`
+    SELECT to_regclass('public.trips') AS trips_table;
+  `);
+  if (!result.rows[0]?.trips_table) {
+    throw new Error('Missing `trips` table. Run `npm run db:migrate` before starting the server.');
+  }
+}
+
 async function initDb() {
   if (process.env.DATABASE_URL) {
     pool = new Pool({ connectionString: process.env.DATABASE_URL });
-    await pool.query(`
-      CREATE TABLE IF NOT EXISTS trips (
-        trip_id TEXT PRIMARY KEY,
-        status TEXT NOT NULL,
-        canonical JSONB,
-        raw_payload JSONB,
-        source TEXT,
-        metadata JSONB,
-        last_updated TIMESTAMPTZ,
-        errors JSONB
-      );
-    `);
+    await ensureTripsTableExists();
   } else {
     await ensureDataDir();
     await loadFallbackStore();
@@ -68,8 +66,8 @@ function transformRow(row) {
 async function saveTripEntry(tripId, entry) {
   if (pool) {
     await pool.query(
-      `INSERT INTO trips (trip_id, status, canonical, raw_payload, source, metadata, last_updated, errors)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+      `INSERT INTO trips (trip_id, status, canonical, raw_payload, source, metadata, last_updated, errors, updated_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,NOW())
        ON CONFLICT (trip_id) DO UPDATE SET
          status = EXCLUDED.status,
          canonical = EXCLUDED.canonical,
@@ -77,7 +75,8 @@ async function saveTripEntry(tripId, entry) {
          source = EXCLUDED.source,
          metadata = EXCLUDED.metadata,
          last_updated = EXCLUDED.last_updated,
-         errors = EXCLUDED.errors;`,
+         errors = EXCLUDED.errors,
+         updated_at = NOW();`,
       [
         tripId,
         entry.status,
