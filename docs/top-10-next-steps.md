@@ -73,13 +73,14 @@ This prioritized to-do list translates the current product vision and architectu
   - Add responsive states, accessibility checks, and motion polish.
 - **Definition of done:** End-to-end prototype is usable on narrow mobile viewports and matches premium UX goals.
 
-## 9) Add feedback and learning loop instrumentation
+## 9) ✅ Add feedback and learning loop instrumentation *(completed)*
 - **Why now:** The docs rely on post-trip signals to improve heuristics and reduce mismatch.
 - **Deliverables:**
   - Capture thumbs up/down, optional feedback text, and regeneration events.
   - Track parse success, playlist guardrail failures, skips (where available), and reminder outcomes.
   - Add basic dashboards and event timeline for iteration decisions.
 - **Definition of done:** Product and heuristic tuning decisions can be made from real usage data.
+- **Status update:** Added feedback event ingestion endpoints, automatic instrumentation for parse outcomes/guardrail retries/reminder dispatch results, plus dashboard + timeline APIs to summarize product-learning signals for iteration decisions.
 
 ## 10) Productionize Render deployment, observability, and release gates
 - **Why now:** Reliable operations are required before broader rollout.
