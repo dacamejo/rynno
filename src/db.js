@@ -1,6 +1,7 @@
 const path = require('path');
 const fs = require('fs/promises');
 const { Pool } = require('pg');
+const { encryptToken, decryptToken } = require('./tokenCrypto');
 
 const DATA_DIR = path.resolve(__dirname, '..', 'data');
 const FALLBACK_FILE = path.join(DATA_DIR, 'trips.json');
@@ -24,6 +25,10 @@ async function loadFallbackStore() {
       fallbackStore = {};
     }
   }
+
+  fallbackStore.trips = fallbackStore.trips || {};
+  fallbackStore.users = fallbackStore.users || {};
+  fallbackStore.oauthTokens = fallbackStore.oauthTokens || {};
 }
 
 async function persistFallbackStore() {
@@ -31,19 +36,25 @@ async function persistFallbackStore() {
   await fs.writeFile(FALLBACK_FILE, JSON.stringify(fallbackStore, null, 2));
 }
 
-async function ensureTripsTableExists() {
-  const result = await pool.query(`
-    SELECT to_regclass('public.trips') AS trips_table;
-  `);
+async function ensureTablesExist() {
+  const result = await pool.query(
+    `SELECT
+      to_regclass('public.trips') AS trips_table,
+      to_regclass('public.users') AS users_table,
+      to_regclass('public.oauth_tokens') AS oauth_tokens_table;`
+  );
   if (!result.rows[0]?.trips_table) {
     throw new Error('Missing `trips` table. Run `npm run db:migrate` before starting the server.');
+  }
+  if (!result.rows[0]?.users_table || !result.rows[0]?.oauth_tokens_table) {
+    throw new Error('Missing auth-related tables. Run `npm run db:migrate` before starting the server.');
   }
 }
 
 async function initDb() {
   if (process.env.DATABASE_URL) {
     pool = new Pool({ connectionString: process.env.DATABASE_URL });
-    await ensureTripsTableExists();
+    await ensureTablesExist();
   } else {
     await ensureDataDir();
     await loadFallbackStore();
@@ -91,7 +102,7 @@ async function saveTripEntry(tripId, entry) {
     return;
   }
 
-  fallbackStore[tripId] = entry;
+  fallbackStore.trips[tripId] = entry;
   await persistFallbackStore();
 }
 
@@ -104,11 +115,119 @@ async function getTripEntry(tripId) {
     return transformRow(result.rows[0]);
   }
 
-  return fallbackStore[tripId] || null;
+  return fallbackStore.trips[tripId] || null;
+}
+
+async function upsertUser({ userId, email = null, spotifyUserId = null, locale = null, timezone = 'UTC' }) {
+  if (pool) {
+    const result = await pool.query(
+      `INSERT INTO users (user_id, email, spotify_user_id, locale, timezone, updated_at)
+       VALUES ($1,$2,$3,$4,$5,NOW())
+       ON CONFLICT (user_id) DO UPDATE SET
+         email = COALESCE(EXCLUDED.email, users.email),
+         spotify_user_id = COALESCE(EXCLUDED.spotify_user_id, users.spotify_user_id),
+         locale = COALESCE(EXCLUDED.locale, users.locale),
+         timezone = COALESCE(EXCLUDED.timezone, users.timezone),
+         updated_at = NOW()
+       RETURNING user_id, email, spotify_user_id, locale, timezone;`,
+      [userId, email, spotifyUserId, locale, timezone]
+    );
+    return result.rows[0];
+  }
+
+  fallbackStore.users[userId] = {
+    user_id: userId,
+    email,
+    spotify_user_id: spotifyUserId,
+    locale,
+    timezone,
+    updated_at: new Date().toISOString()
+  };
+  await persistFallbackStore();
+  return fallbackStore.users[userId];
+}
+
+async function saveOAuthToken({ userId, provider, accessToken, refreshToken, scope, tokenType, expiresAt, metadata = {} }) {
+  const encryptedAccessToken = encryptToken(accessToken);
+  const encryptedRefreshToken = refreshToken ? encryptToken(refreshToken) : null;
+
+  if (pool) {
+    await pool.query(
+      `INSERT INTO oauth_tokens
+      (user_id, provider, access_token_ciphertext, refresh_token_ciphertext, scope, token_type, expires_at, last_refreshed_at, metadata, updated_at)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,NOW(),$8,NOW())
+      ON CONFLICT (user_id, provider) DO UPDATE SET
+        access_token_ciphertext = EXCLUDED.access_token_ciphertext,
+        refresh_token_ciphertext = COALESCE(EXCLUDED.refresh_token_ciphertext, oauth_tokens.refresh_token_ciphertext),
+        scope = EXCLUDED.scope,
+        token_type = EXCLUDED.token_type,
+        expires_at = EXCLUDED.expires_at,
+        last_refreshed_at = NOW(),
+        metadata = EXCLUDED.metadata,
+        updated_at = NOW();`,
+      [userId, provider, encryptedAccessToken, encryptedRefreshToken, scope, tokenType, expiresAt, metadata]
+    );
+    return;
+  }
+
+  fallbackStore.oauthTokens[`${provider}:${userId}`] = {
+    userId,
+    provider,
+    accessTokenCiphertext: encryptedAccessToken,
+    refreshTokenCiphertext: encryptedRefreshToken,
+    scope,
+    tokenType,
+    expiresAt,
+    metadata,
+    lastRefreshedAt: new Date().toISOString()
+  };
+  await persistFallbackStore();
+}
+
+async function getOAuthToken(userId, provider) {
+  if (pool) {
+    const result = await pool.query('SELECT * FROM oauth_tokens WHERE user_id = $1 AND provider = $2', [userId, provider]);
+    if (result.rowCount === 0) {
+      return null;
+    }
+
+    const row = result.rows[0];
+    return {
+      userId: row.user_id,
+      provider: row.provider,
+      accessToken: decryptToken(row.access_token_ciphertext),
+      refreshToken: row.refresh_token_ciphertext ? decryptToken(row.refresh_token_ciphertext) : null,
+      scope: row.scope,
+      tokenType: row.token_type,
+      expiresAt: row.expires_at,
+      lastRefreshedAt: row.last_refreshed_at,
+      metadata: row.metadata || {}
+    };
+  }
+
+  const entry = fallbackStore.oauthTokens[`${provider}:${userId}`];
+  if (!entry) {
+    return null;
+  }
+
+  return {
+    userId: entry.userId,
+    provider: entry.provider,
+    accessToken: decryptToken(entry.accessTokenCiphertext),
+    refreshToken: entry.refreshTokenCiphertext ? decryptToken(entry.refreshTokenCiphertext) : null,
+    scope: entry.scope,
+    tokenType: entry.tokenType,
+    expiresAt: entry.expiresAt,
+    lastRefreshedAt: entry.lastRefreshedAt,
+    metadata: entry.metadata || {}
+  };
 }
 
 module.exports = {
   initDb,
   saveTripEntry,
-  getTripEntry
+  getTripEntry,
+  upsertUser,
+  saveOAuthToken,
+  getOAuthToken
 };

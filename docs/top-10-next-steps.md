@@ -29,13 +29,14 @@ This prioritized to-do list translates the current product vision and architectu
 - **Definition of done:** Database is source-controlled, reproducible, and supports full lifecycle data.
 - **Status update:** Added source-controlled SQL migrations with the initial relational schema (`users`, `trips`, `trip_legs`, `oauth_tokens`, `spotify_playlists`, `reminders`) plus scheduler/query indexes, introduced a migration runner script with `schema_migrations` tracking, and wired Render pre-deploy migration execution via `npm run db:migrate`.
 
-## 4) Complete Spotify OAuth + token lifecycle service
+## 4) ✅ Complete Spotify OAuth + token lifecycle service *(completed)*
 - **Why now:** Playlist creation cannot scale without secure auth and refresh handling.
 - **Deliverables:**
   - Implement `/auth/spotify` and callback state validation.
   - Persist encrypted token material and metadata.
   - Add refresh job + invalid token re-auth signaling.
 - **Definition of done:** Connected user can authorize once and continue generating playlists without manual re-login until refresh revocation.
+- **Status update:** Added Spotify Authorization Code endpoints (`/auth/spotify`, `/auth/spotify/callback`) with expiring state validation, encrypted token persistence for `oauth_tokens`, a protected refresh endpoint (`/api/spotify/refresh`) with re-auth signaling on invalid grants, and token metadata diagnostics via `/api/spotify/tokens/:userId`.
 
 ## 5) Build v1 mood mapper + seed orchestration engine
 - **Why now:** The core value is “trip-aware, editorial-feeling playlists,” not just generic recommendations.

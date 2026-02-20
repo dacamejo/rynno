@@ -10,22 +10,35 @@ function buildAuthHeaders(accessToken) {
   };
 }
 
-async function refreshAccessToken(refreshToken) {
+function getClientCredentials() {
   const clientId = process.env.SPOTIFY_CLIENT_ID;
   const clientSecret = process.env.SPOTIFY_CLIENT_SECRET;
   if (!clientId || !clientSecret) {
-    throw new Error('Missing Spotify client ID / secret for refresh flow.');
+    throw new Error('Missing Spotify client ID / secret.');
   }
 
-  const basicAuth = Buffer.from(`${clientId}:${clientSecret}`).toString('base64');
+  return { clientId, clientSecret };
+}
+
+function getBasicAuthHeader() {
+  const { clientId, clientSecret } = getClientCredentials();
+  return Buffer.from(`${clientId}:${clientSecret}`).toString('base64');
+}
+
+async function exchangeAuthorizationCode({ code, redirectUri }) {
+  if (!code) {
+    throw new Error('Missing Spotify authorization code.');
+  }
+
   const body = new URLSearchParams({
-    grant_type: 'refresh_token',
-    refresh_token: refreshToken
+    grant_type: 'authorization_code',
+    code,
+    redirect_uri: redirectUri
   });
 
   const response = await axios.post(`${ACCOUNTS_BASE}/token`, body.toString(), {
     headers: {
-      Authorization: `Basic ${basicAuth}`,
+      Authorization: `Basic ${getBasicAuthHeader()}`,
       'Content-Type': 'application/x-www-form-urlencoded'
     },
     timeout: 10000
@@ -33,7 +46,37 @@ async function refreshAccessToken(refreshToken) {
 
   return {
     accessToken: response.data.access_token,
-    expiresIn: response.data.expires_in
+    refreshToken: response.data.refresh_token,
+    expiresIn: response.data.expires_in,
+    scope: response.data.scope,
+    tokenType: response.data.token_type
+  };
+}
+
+async function refreshAccessToken(refreshToken) {
+  if (!refreshToken) {
+    throw new Error('Refresh token is required.');
+  }
+
+  const body = new URLSearchParams({
+    grant_type: 'refresh_token',
+    refresh_token: refreshToken
+  });
+
+  const response = await axios.post(`${ACCOUNTS_BASE}/token`, body.toString(), {
+    headers: {
+      Authorization: `Basic ${getBasicAuthHeader()}`,
+      'Content-Type': 'application/x-www-form-urlencoded'
+    },
+    timeout: 10000
+  });
+
+  return {
+    accessToken: response.data.access_token,
+    refreshToken: response.data.refresh_token,
+    expiresIn: response.data.expires_in,
+    scope: response.data.scope,
+    tokenType: response.data.token_type
   };
 }
 
@@ -109,6 +152,7 @@ async function addTracksToPlaylist(accessToken, playlistId, uris = []) {
 }
 
 module.exports = {
+  exchangeAuthorizationCode,
   refreshAccessToken,
   getUserProfile,
   getRecommendations,
