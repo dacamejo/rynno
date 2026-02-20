@@ -1,5 +1,6 @@
 const express = require('express');
 const crypto = require('crypto');
+const path = require('path');
 const { runAdapter } = require('./src/tripParser');
 const { generatePlaylist } = require('./services/playlistBuilder');
 const { initDb, saveTripEntry, getTripEntry } = require('./src/db');
@@ -8,13 +9,11 @@ const app = express();
 const port = process.env.PORT || 3000;
 
 app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+app.use(express.static(path.join(__dirname, 'public')));
 
 app.get('/', (_req, res) => {
-  res.json({
-    name: 'Rynno Backend',
-    status: 'ok',
-    message: 'Share your SBB itinerary to generate a soundtrack.'
-  });
+  res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
 app.get('/health', (_req, res) => {
@@ -79,6 +78,14 @@ app.get('/api/v1/trips/:tripId/status', async (req, res) => {
     return res.status(404).json({ error: 'Trip not found' });
   }
   return res.json({ tripId: req.params.tripId, status: entry.status, canonical: entry.canonical, errors: entry.errors });
+});
+
+app.get('/share-target', (_req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'share-target.html'));
+});
+
+app.post('/share-target', (_req, res) => {
+  return res.redirect(303, '/share-target');
 });
 
 app.post('/api/v1/trips/:tripId/refresh', async (req, res) => {

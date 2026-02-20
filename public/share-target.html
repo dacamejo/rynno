@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Rynno Share Target</title>
+    <style>
+      body { font-family: Arial, sans-serif; margin: 0; background: #f8fafc; color: #0f172a; }
+      main { max-width: 720px; margin: 0 auto; padding: 24px 16px 40px; }
+      .card { background: #fff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 16px; box-shadow: 0 8px 24px rgba(15, 23, 42, 0.04); }
+      h1 { margin-top: 0; }
+      .hidden { display: none; }
+      .muted { color: #475569; }
+      .field { margin: 12px 0; }
+      label { display: block; font-size: 0.9rem; font-weight: 600; margin-bottom: 6px; }
+      input, textarea { width: 100%; border: 1px solid #cbd5e1; border-radius: 8px; padding: 10px; font-size: 0.95rem; box-sizing: border-box; }
+      button { border: none; border-radius: 8px; padding: 10px 14px; background: #0f172a; color: #fff; font-weight: 600; cursor: pointer; }
+      pre { background: #f1f5f9; border-radius: 8px; padding: 10px; overflow: auto; }
+    </style>
+    <link rel="manifest" href="/manifest.webmanifest" />
+  </head>
+  <body>
+    <main>
+      <section class="card">
+        <h1>Import your shared trip</h1>
+
+        <div id="loading-state">
+          <p class="muted">Loading shared itinerary data...</p>
+        </div>
+
+        <div id="success-state" class="hidden">
+          <p>Trip details captured. You can now ingest this into Rynno.</p>
+          <pre id="payload-preview"></pre>
+          <button id="ingest-button">Ingest trip</button>
+          <p id="ingest-result" class="muted"></p>
+        </div>
+
+        <div id="fallback-state" class="hidden">
+          <p class="muted">No share payload was detected. Paste trip details manually.</p>
+          <div class="field">
+            <label for="manual-source">Source</label>
+            <input id="manual-source" value="manual" />
+          </div>
+          <div class="field">
+            <label for="manual-text">Trip link or details</label>
+            <textarea id="manual-text" rows="4" placeholder="Paste SBB or Google Maps trip details"></textarea>
+          </div>
+          <button id="manual-ingest-button">Ingest manually</button>
+          <p id="manual-result" class="muted"></p>
+        </div>
+      </section>
+    </main>
+
+    <script src="/share-target.js"></script>
+  </body>
+</html>

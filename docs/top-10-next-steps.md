@@ -2,13 +2,14 @@
 
 This prioritized to-do list translates the current product vision and architecture docs into concrete implementation work.
 
-## 1) Ship PWA share-target ingestion end-to-end
+## 1) ✅ Ship PWA share-target ingestion end-to-end *(completed)*
 - **Why now:** The primary entry point in the vision is “Share ➜ Choose Rynno ➜ Get playlist.”
 - **Deliverables:**
   - Add `share_target` config to web manifest.
   - Implement service worker POST interception and payload persistence.
   - Build `/share-target` route with loading, success, and fallback manual states.
 - **Definition of done:** A user can share from SBB/Google and land in Rynno with parsed trip data prefilled.
+- **Status update:** Implemented via `manifest.webmanifest` share target config, `sw.js` POST interception + payload cache persistence, and `/share-target` route with loading/success/fallback manual ingest states.
 
 ## 2) Harden parser adapters for SBB + Google with confidence scoring
 - **Why now:** Reliable trip normalization is the foundation for both playlists and reminders.
@@ -85,13 +86,13 @@ This prioritized to-do list translates the current product vision and architectu
 ---
 
 ## Suggested implementation order
-1. Share target + parser hardening (items 1–2)
+1. Parser hardening (item 2)
 2. Persistence + OAuth (items 3–4)
 3. Playlist engine + guardrails (items 5–6)
 4. Reminders + UI flow (items 7–8)
 5. Feedback loop + production ops (items 9–10)
 
 ## Suggested 30-60-90 execution framing
-- **First 30 days:** 1, 2, 3
+- **First 30 days:** 2, 3, 4
 - **By day 60:** 4, 5, 6, 8
 - **By day 90:** 7, 9, 10
