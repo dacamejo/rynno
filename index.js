@@ -10,8 +10,18 @@ const {
   getTripEntry,
   upsertUser,
   saveOAuthToken,
-  getOAuthToken
+  getOAuthToken,
+  createReminder,
+  getReminder,
+  listDueReminders,
+  markReminderStatus,
+  listTripsForRefresh
 } = require('./src/db');
+const {
+  getReminderScheduleTime,
+  dispatchDueReminders,
+  refreshTripsForDelays
+} = require('./services/reminderScheduler');
 
 const app = express();
 const port = process.env.PORT || 3000;
@@ -386,6 +396,156 @@ app.post('/api/v1/trips/:tripId/refresh', async (req, res) => {
     console.error('Trip refresh failed', { tripId, error: details });
     return res.status(500).json({ tripId, status: updatedEntry.status, errors: updatedEntry.errors });
   }
+});
+
+app.post('/api/v1/trips/:tripId/reminders', async (req, res) => {
+  const entry = await getTripEntry(req.params.tripId);
+  if (!entry) {
+    return res.status(404).json({ error: 'Trip not found' });
+  }
+
+  const leadMinutes = Number(req.body?.leadMinutes ?? 20);
+  const channel = req.body?.channel || 'in_app';
+  const scheduledFor =
+    req.body?.scheduledFor ||
+    getReminderScheduleTime(entry.canonical, Number.isFinite(leadMinutes) ? leadMinutes : 20);
+
+  if (!scheduledFor) {
+    return res.status(400).json({ error: 'Unable to compute scheduled reminder time for this trip.' });
+  }
+
+  const reminder = await createReminder({
+    tripId: req.params.tripId,
+    userId: req.body?.userId || entry.metadata?.userId || null,
+    channel,
+    scheduledFor,
+    metadata: {
+      leadMinutes: Number.isFinite(leadMinutes) ? leadMinutes : 20,
+      playlistUrl: req.body?.playlistUrl || null,
+      autoRefreshPlaylist: req.body?.autoRefreshPlaylist !== false
+    }
+  });
+
+  return res.status(201).json({ status: 'scheduled', reminder });
+});
+
+app.get('/api/v1/reminders/:reminderId', async (req, res) => {
+  const reminder = await getReminder(req.params.reminderId);
+  if (!reminder) {
+    return res.status(404).json({ error: 'Reminder not found' });
+  }
+
+  return res.json(reminder);
+});
+
+app.post('/api/v1/reminders/dispatch-due', async (req, res) => {
+  const internalApiKey = process.env.INTERNAL_API_KEY;
+  if (internalApiKey && req.get('x-api-key') !== internalApiKey) {
+    return res.status(401).json({ error: 'Unauthorized reminder dispatch attempt.' });
+  }
+
+  const summary = await dispatchDueReminders({
+    db: {
+      listDueReminders,
+      getTripEntry,
+      markReminderStatus
+    },
+    limit: Number(req.body?.limit || 25),
+    notifyReminder: async (payload) => {
+      console.log('Reminder dispatch', {
+        reminderId: payload.reminderId,
+        tripId: payload.tripId,
+        userId: payload.userId,
+        channel: payload.channel,
+        scheduledFor: payload.scheduledFor
+      });
+    }
+  });
+
+  return res.json(summary);
+});
+
+app.post('/api/v1/trips/refresh-loop', async (req, res) => {
+  const internalApiKey = process.env.INTERNAL_API_KEY;
+  if (internalApiKey && req.get('x-api-key') !== internalApiKey) {
+    return res.status(401).json({ error: 'Unauthorized trip refresh loop attempt.' });
+  }
+
+  const horizonMinutes = Number(req.body?.horizonMinutes || 120);
+  const delayThresholdSeconds = Number(req.body?.delayThresholdSeconds || 300);
+
+  const summary = await refreshTripsForDelays({
+    db: { listTripsForRefresh },
+    horizonMinutes,
+    delayThresholdSeconds,
+    runTripRefresh: async (tripId) => {
+      const entry = await getTripEntry(tripId);
+      if (!entry) {
+        return null;
+      }
+
+      const canonical = await runAdapter({
+        tripId,
+        source: entry.source,
+        payload: entry.rawPayload || {},
+        metadata: entry.metadata || {}
+      });
+
+      const updatedEntry = await createStoreEntry({
+        canonical,
+        payload: entry.rawPayload || {},
+        metadata: entry.metadata || {},
+        source: entry.source,
+        status: 'complete'
+      });
+
+      await saveTripEntry(tripId, updatedEntry);
+      return updatedEntry;
+    },
+    maybeRefreshPlaylist: async ({ tripId, refreshedTrip, timingShift }) => {
+      const userId = refreshedTrip?.metadata?.userId || req.body?.userId || null;
+      if (!userId) {
+        return { attempted: false, reason: 'missing_user' };
+      }
+
+      const tokenEntry = await getOAuthToken(userId, 'spotify');
+      if (!tokenEntry) {
+        return { attempted: false, reason: 'missing_spotify_token' };
+      }
+
+      if (req.body?.refreshPlaylist === false) {
+        return { attempted: false, reason: 'disabled_by_request' };
+      }
+
+      try {
+        const playlist = await generatePlaylist({
+          trip: refreshedTrip,
+          preferences: req.body?.preferences || {},
+          spotify: {
+            accessToken: tokenEntry.accessToken,
+            refreshToken: tokenEntry.refreshToken
+          }
+        });
+
+        return {
+          attempted: true,
+          refreshed: true,
+          timingShiftSeconds: timingShift.deltaSeconds,
+          playlistId: playlist?.playlistId || playlist?.id || null,
+          playlistUrl: playlist?.playlistUrl || playlist?.externalUrl || null
+        };
+      } catch (error) {
+        return {
+          attempted: true,
+          refreshed: false,
+          timingShiftSeconds: timingShift.deltaSeconds,
+          error: getErrorCauseDetails(error)
+        };
+      }
+    }
+  });
+
+  return res.json(summary);
 });
 
 app.post('/api/v1/playlists/generate', async (req, res) => {
