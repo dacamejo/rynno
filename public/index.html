@@ -3,172 +3,220 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Rynno Feature Test UI</title>
+    <title>Rynno Mobile Prototype</title>
     <link rel="manifest" href="/manifest.webmanifest" />
     <style>
       :root {
         color-scheme: light;
-        font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+        --bg: #041423;
+        --bg-soft: #11243f;
+        --card: #f7f6f3;
+        --text: #1f2a37;
+        --muted: #536275;
+        --accent: #e4b95c;
+        --accent-2: #f7d58b;
+        --chip: #dce4ee;
+        --chip-selected: #14273f;
+        --chip-selected-text: #f5f9ff;
       }
+
+      * { box-sizing: border-box; }
+
       body {
         margin: 0;
-        background: #f8fafc;
-        color: #0f172a;
-      }
-      main {
-        max-width: 1100px;
-        margin: 0 auto;
-        padding: 24px 16px 48px;
-      }
-      .stack {
-        display: grid;
-        gap: 16px;
-      }
-      .card {
-        background: #fff;
-        border: 1px solid #e2e8f0;
-        border-radius: 12px;
-        box-shadow: 0 10px 24px rgba(15, 23, 42, 0.04);
-        padding: 16px;
-      }
-      h1, h2 {
-        margin: 0 0 12px;
-      }
-      p {
-        margin: 8px 0;
-      }
-      .grid {
-        display: grid;
-        gap: 12px;
-      }
-      @media (min-width: 900px) {
-        .grid.two {
-          grid-template-columns: repeat(2, minmax(0, 1fr));
-        }
-      }
-      label {
-        display: block;
-        font-size: 0.9rem;
-        font-weight: 600;
-        margin-bottom: 6px;
-      }
-      input, textarea, select, button {
-        width: 100%;
-        box-sizing: border-box;
-        border-radius: 8px;
-        border: 1px solid #cbd5e1;
-        padding: 10px;
-        font-size: 0.95rem;
-      }
-      textarea {
-        min-height: 96px;
-        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-      }
-      button {
-        border: 0;
-        cursor: pointer;
-        background: #0f172a;
-        color: #fff;
-        font-weight: 600;
-        width: auto;
-        padding: 10px 14px;
-      }
-      .row {
+        min-height: 100vh;
+        background: radial-gradient(circle at top, #172b4a, var(--bg));
+        color: var(--text);
+        font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
         display: flex;
-        gap: 8px;
-        flex-wrap: wrap;
-        align-items: center;
+        justify-content: center;
+        padding: 18px;
       }
-      .muted { color: #475569; }
-      pre {
-        margin: 8px 0 0;
-        background: #f1f5f9;
-        border-radius: 8px;
-        padding: 12px;
-        overflow: auto;
+
+      .app-shell {
+        width: min(100%, 420px);
+        display: grid;
+        gap: 14px;
+        padding-bottom: 32px;
       }
-      .ok { color: #166534; }
-      .warn { color: #92400e; }
-      .error { color: #b91c1c; }
-      .small { font-size: 0.88rem; }
-      .status-pill {
+
+      .card {
+        background: var(--card);
+        border-radius: 24px;
+        padding: 18px;
+        box-shadow: 0 16px 35px rgba(0, 0, 0, 0.26);
+      }
+
+      .hero {
+        color: #f8fafc;
+        background: linear-gradient(160deg, #0f2037, #2f1c3d);
+      }
+
+      h1, h2, h3 { margin: 0 0 8px; }
+      h1 { font-size: 1.72rem; line-height: 1.1; }
+      h2 { font-size: 1.18rem; }
+      p { margin: 0; }
+      .muted { color: var(--muted); }
+      .small { font-size: 0.86rem; }
+
+      .stack { display: grid; gap: 12px; }
+      .row { display: flex; gap: 8px; flex-wrap: wrap; }
+
+      .button {
+        border: 0;
+        border-radius: 14px;
+        padding: 12px 14px;
+        font-weight: 700;
+        font-size: 0.94rem;
+        cursor: pointer;
+      }
+
+      .button-primary {
+        background: var(--accent);
+        color: #2f2210;
+      }
+
+      .button-secondary {
+        background: #233850;
+        color: #f8fafc;
+      }
+
+      .button-ghost {
+        background: #dce4ee;
+        color: #1f2a37;
+      }
+
+      .pill {
         display: inline-flex;
-        padding: 3px 8px;
+        align-items: center;
         border-radius: 999px;
-        background: #e2e8f0;
-        font-size: 0.8rem;
+        padding: 4px 10px;
+        background: rgba(255, 255, 255, 0.14);
+        font-size: 0.74rem;
       }
+
+      .hidden { display: none !important; }
+
+      .loader {
+        height: 86px;
+        border-radius: 16px;
+        background: linear-gradient(90deg, #dfe7ef 20%, #f4f8fc 45%, #dfe7ef 70%);
+        background-size: 200% 100%;
+        animation: shimmer 1.2s linear infinite;
+      }
+
+      @keyframes shimmer {
+        from { background-position: 200% 0; }
+        to { background-position: -200% 0; }
+      }
+
+      .chip {
+        border: 0;
+        background: var(--chip);
+        border-radius: 999px;
+        min-height: 44px;
+        padding: 10px 14px;
+        font-weight: 600;
+        cursor: pointer;
+      }
+
+      .chip[aria-pressed='true'] {
+        background: var(--chip-selected);
+        color: var(--chip-selected-text);
+      }
+
+      .toggle {
+        width: 100%;
+        border: 1px solid #c3cedd;
+        border-radius: 12px;
+        background: #fff;
+        padding: 10px;
+      }
+
+      .track {
+        background: #eff3f9;
+        border-radius: 14px;
+        padding: 10px;
+      }
+
+      .footer-nav { display: flex; gap: 10px; }
+      .footer-nav button { flex: 1; }
+
+      .status-good { color: #106333; }
     </style>
   </head>
   <body>
-    <main class="stack">
-      <section class="card">
-        <h1>Rynno Feature Test UI</h1>
-        <p class="muted">Use this page to quickly exercise the backend endpoints and flows from one place.</p>
-        <p id="sw-status" class="small">Registering service worker...</p>
-        <p class="small">Current base URL: <span id="base-url" class="status-pill"></span></p>
+    <main class="app-shell">
+      <section class="card hero stack">
+        <span class="pill">Share ➜ Choose Rynno ➜ Get playlist</span>
+        <h1>Your Swiss train journey, scored.</h1>
+        <p>Share from SBB or Google Maps and get a curated soundtrack before departure.</p>
+        <div class="row">
+          <button class="button button-primary" id="simulate-share">Share from SBB / Google</button>
+          <a class="button button-secondary" href="/share-target">Open share target</a>
+        </div>
       </section>
 
-      <section class="card stack">
-        <h2>1) Diagnostics</h2>
-        <div class="row">
-          <button data-action="health">Check /health</button>
-          <button data-action="contract">Get parser contract</button>
-        </div>
-        <pre id="diagnostics-output">No request yet.</pre>
+      <section class="card stack hidden" id="loader-card" aria-live="polite">
+        <h2>Decoding your Lausanne → Zermatt magic...</h2>
+        <div class="loader"></div>
+        <p class="small muted">Extracting route legs, timing, and vibe cues.</p>
       </section>
 
-      <section class="card stack">
-        <h2>2) Trip Ingestion + Refresh + Status</h2>
-        <div class="grid two">
-          <div>
-            <label for="trip-source">Source</label>
-            <input id="trip-source" value="manual" />
-          </div>
-          <div>
-            <label for="trip-id">Trip ID (optional for ingest)</label>
-            <input id="trip-id" placeholder="auto-generated if blank" />
-          </div>
+      <section class="card stack hidden" id="trip-review">
+        <h2>Trip review</h2>
+        <p class="muted" id="trip-summary">No trip loaded yet.</p>
+        <div>
+          <h3>Companions & mood tags</h3>
+          <div class="row" id="tag-chips"></div>
         </div>
-        <label for="trip-body">Ingest request body</label>
-        <textarea id="trip-body"></textarea>
+
+        <div class="stack">
+          <label for="language-select"><strong>Language vibe</strong></label>
+          <select id="language-select" class="toggle">
+            <option>Surprise me</option>
+            <option>Swiss German</option>
+            <option>French</option>
+            <option>Italian</option>
+            <option>English</option>
+          </select>
+
+          <label for="region-select"><strong>Region focus</strong></label>
+          <select id="region-select" class="toggle">
+            <option>Switzerland</option>
+            <option>Alpine Europe</option>
+            <option>Global mix</option>
+          </select>
+        </div>
+
         <div class="row">
-          <button data-action="ingest">POST /api/v1/trips/ingest</button>
-          <button data-action="status">GET /api/v1/trips/:tripId/status</button>
-          <button data-action="refresh">POST /api/v1/trips/:tripId/refresh</button>
-          <button data-action="proxy-parse">POST /api/trip-parser</button>
+          <button class="button button-primary" id="regenerate-playlist">Regenerate playlist</button>
+          <button class="button button-ghost" id="schedule-reminder">Schedule reminder</button>
         </div>
-        <pre id="trip-output">No request yet.</pre>
+        <p class="small muted" id="trip-action-status">Awaiting action.</p>
       </section>
 
-      <section class="card stack">
-        <h2>3) Spotify OAuth + Token Utilities</h2>
-        <div class="grid two">
-          <div>
-            <label for="spotify-user-id">User ID</label>
-            <input id="spotify-user-id" placeholder="test-user-123" />
-          </div>
-          <div>
-            <label for="spotify-trip-id">Trip ID (optional)</label>
-            <input id="spotify-trip-id" placeholder="attach OAuth to a trip" />
-          </div>
-        </div>
-        <div class="row">
-          <button data-action="oauth-link">Open /auth/spotify in new tab</button>
-          <button data-action="token-meta">GET /api/spotify/tokens/:userId</button>
-          <button data-action="refresh-token">POST /api/spotify/refresh</button>
-        </div>
-        <pre id="spotify-output">No request yet.</pre>
+      <section class="card stack hidden" id="playlist-panel">
+        <h2>Playlist storytelling</h2>
+        <p class="muted">Mood profile updates when tags/region change.</p>
+        <div class="track"><strong>Golden Hour Departure</strong><br /><span class="small">Energy 0.48 · Valence 0.62</span></div>
+        <div class="track"><strong>Platform Echoes</strong><br /><span class="small">Energy 0.55 · Valence 0.58</span></div>
+        <div class="track"><strong>Summit Afterglow</strong><br /><span class="small">Energy 0.43 · Valence 0.71</span></div>
       </section>
 
-      <section class="card stack">
-        <h2>4) Playlist Generation</h2>
-        <label for="playlist-body">Generate playlist request body</label>
-        <textarea id="playlist-body"></textarea>
-        <div class="row">
-          <button data-action="playlist">POST /api/v1/playlists/generate</button>
+      <section class="card stack" id="settings-history">
+        <h2>Settings & history</h2>
+        <p class="small" id="sw-status">Registering service worker…</p>
+        <p class="small" id="spotify-status">Spotify auth: Not connected</p>
+        <label class="small" for="spotify-user-id"><strong>Spotify user id</strong></label>
+        <input class="toggle" id="spotify-user-id" placeholder="demo-user-123" />
+        <button class="button button-secondary" id="open-oauth">Connect Spotify</button>
+
+        <div>
+          <h3>Recent journeys</h3>
+          <div class="track">Bern → Interlaken <span class="small">· Cinematic Calm</span></div>
+          <div class="track">Geneva → Zürich <span class="small">· Focus Rail</span></div>
         </div>
-        <pre id="playlist-output">No request yet.</pre>
       </section>
     </main>
 

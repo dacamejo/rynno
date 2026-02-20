@@ -1,72 +1,68 @@
 const swStatus = document.getElementById('sw-status');
-const baseUrlNode = document.getElementById('base-url');
-const diagnosticsOutput = document.getElementById('diagnostics-output');
-const tripOutput = document.getElementById('trip-output');
-const spotifyOutput = document.getElementById('spotify-output');
-const playlistOutput = document.getElementById('playlist-output');
-
-const tripSource = document.getElementById('trip-source');
-const tripIdInput = document.getElementById('trip-id');
-const tripBodyInput = document.getElementById('trip-body');
-
+const spotifyStatus = document.getElementById('spotify-status');
+const simulateShareButton = document.getElementById('simulate-share');
+const loaderCard = document.getElementById('loader-card');
+const tripReviewCard = document.getElementById('trip-review');
+const playlistPanel = document.getElementById('playlist-panel');
+const tripSummary = document.getElementById('trip-summary');
+const tagChipsContainer = document.getElementById('tag-chips');
+const tripActionStatus = document.getElementById('trip-action-status');
+const regeneratePlaylistButton = document.getElementById('regenerate-playlist');
+const scheduleReminderButton = document.getElementById('schedule-reminder');
+const openOauthButton = document.getElementById('open-oauth');
 const spotifyUserIdInput = document.getElementById('spotify-user-id');
-const spotifyTripIdInput = document.getElementById('spotify-trip-id');
 
-const playlistBodyInput = document.getElementById('playlist-body');
-
-const defaultTripBody = {
+const TAGS = ['Solo', 'Couple', 'Family', 'Celebration', 'Surprise'];
+const selectedTags = new Set(['Solo']);
+const tripTemplate = {
   source: 'manual',
   metadata: {
-    tester: 'feature-ui',
-    flow: 'manual_test',
+    flow: 'mobile_prototype',
     capturedAt: new Date().toISOString()
   },
   payload: {
-    sharedTitle: 'Basel SBB → Zürich HB',
-    sharedText: 'Leave around 18:10, one transfer in Olten',
+    from: 'Lausanne',
+    to: 'Zermatt',
+    date: '2026-03-14',
+    time: '18:15',
+    sharedTitle: 'Lausanne → Zermatt',
+    sharedText: 'Transit route via Visp, evening departure around 18:15.',
     sharedUrl: 'https://www.sbb.ch/en'
   }
 };
 
-const defaultPlaylistBody = {
-  trip: {
-    tripId: 'replace-with-trip-id',
-    route: {
-      origin: 'Basel SBB',
-      destination: 'Zürich HB'
-    },
-    timing: {
-      departureTime: new Date(Date.now() + 45 * 60 * 1000).toISOString(),
-      arrivalTime: new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString()
-    }
-  },
-  preferences: {
-    mood: 'focus',
-    avoidExplicit: false
-  },
-  spotify: {
-    accessToken: 'paste-access-token-or-use-refresh-token',
-    refreshToken: ''
-  }
-};
+let activeTripId = null;
 
-function setOutput(node, payload, tone = 'ok') {
-  node.className = tone;
-  node.textContent = typeof payload === 'string' ? payload : JSON.stringify(payload, null, 2);
-}
+function renderTags() {
+  tagChipsContainer.innerHTML = '';
+  TAGS.forEach((tag) => {
+    const chip = document.createElement('button');
+    chip.type = 'button';
+    chip.className = 'chip';
+    chip.textContent = tag;
+    chip.setAttribute('aria-pressed', String(selectedTags.has(tag)));
+    chip.addEventListener('click', () => {
+      if (selectedTags.has(tag)) {
+        selectedTags.delete(tag);
+      } else {
+        selectedTags.add(tag);
+      }
 
-function getJson(textarea, fallback = {}) {
-  const raw = textarea.value.trim();
-  if (!raw) {
-    return fallback;
-  }
-  return JSON.parse(raw);
+      if (!selectedTags.size) {
+        selectedTags.add('Surprise');
+      }
+
+      renderTags();
+      tripActionStatus.textContent = `Updated tags: ${Array.from(selectedTags).join(', ')}`;
+    });
+
+    tagChipsContainer.appendChild(chip);
+  });
 }
 
 async function requestJson(url, options = {}) {
   const response = await fetch(url, options);
   const body = await response.json().catch(() => ({ error: 'Non-JSON response' }));
-
   if (!response.ok) {
     const message = body.error || body.details || body.errors?.join(', ') || 'Request failed';
     throw new Error(message);
@@ -75,172 +71,104 @@ async function requestJson(url, options = {}) {
   return body;
 }
 
-function initDefaults() {
-  baseUrlNode.textContent = window.location.origin;
-  tripBodyInput.value = JSON.stringify(defaultTripBody, null, 2);
-  playlistBodyInput.value = JSON.stringify(defaultPlaylistBody, null, 2);
-}
-
 async function setupServiceWorker() {
   if (!('serviceWorker' in navigator)) {
-    swStatus.textContent = 'Service worker not supported in this browser.';
-    swStatus.className = 'small warn';
+    swStatus.textContent = 'Service worker unavailable in this browser.';
     return;
   }
 
   try {
     await navigator.serviceWorker.register('/sw.js');
-    swStatus.textContent = 'Service worker ready. Share Target flows can be tested at /share-target.';
-    swStatus.className = 'small ok';
+    swStatus.textContent = 'Service worker ready for share-target flow.';
+    swStatus.classList.add('status-good');
   } catch (error) {
-    swStatus.textContent = `Service worker registration failed: ${error.message}`;
-    swStatus.className = 'small error';
+    swStatus.textContent = `Service worker failed: ${error.message}`;
   }
 }
 
-async function runAction(action) {
+async function simulateShareIngest() {
+  loaderCard.classList.remove('hidden');
+  tripReviewCard.classList.add('hidden');
+  playlistPanel.classList.add('hidden');
+  tripActionStatus.textContent = 'Syncing trip data...';
+
   try {
-    if (action === 'health') {
-      setOutput(diagnosticsOutput, await requestJson('/health'));
-      return;
-    }
+    const ingestResult = await requestJson('/api/v1/trips/ingest', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(tripTemplate)
+    });
 
-    if (action === 'contract') {
-      setOutput(diagnosticsOutput, await requestJson('/api/trip-parser/contract'));
-      return;
-    }
+    activeTripId = ingestResult.tripId;
 
-    if (action === 'ingest') {
-      const body = getJson(tripBodyInput, defaultTripBody);
-      body.source = tripSource.value || body.source || 'manual';
+    const statusResult = await requestJson(`/api/v1/trips/${encodeURIComponent(activeTripId)}/status`);
+    const route = statusResult.canonical?.route || {};
+    const timing = statusResult.canonical?.timing || {};
+    tripSummary.textContent = `${route.origin || 'Origin'} → ${route.destination || 'Destination'} · Depart ${
+      timing.departureTime || 'TBD'
+    }`;
 
-      const tripId = tripIdInput.value.trim();
-      if (tripId) {
-        body.tripId = tripId;
-      }
-
-      const result = await requestJson('/api/v1/trips/ingest', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify(body)
-      });
-
-      if (!tripIdInput.value.trim() && result.tripId) {
-        tripIdInput.value = result.tripId;
-      }
-
-      setOutput(tripOutput, result);
-      return;
-    }
-
-    if (action === 'status') {
-      const tripId = tripIdInput.value.trim();
-      if (!tripId) {
-        throw new Error('Trip ID required. Run ingest first or fill trip ID.');
-      }
-      setOutput(tripOutput, await requestJson(`/api/v1/trips/${encodeURIComponent(tripId)}/status`));
-      return;
-    }
-
-    if (action === 'refresh') {
-      const tripId = tripIdInput.value.trim();
-      if (!tripId) {
-        throw new Error('Trip ID required.');
-      }
-      setOutput(
-        tripOutput,
-        await requestJson(`/api/v1/trips/${encodeURIComponent(tripId)}/refresh`, { method: 'POST' })
-      );
-      return;
-    }
-
-    if (action === 'proxy-parse') {
-      const body = getJson(tripBodyInput, defaultTripBody);
-      setOutput(
-        tripOutput,
-        await requestJson('/api/trip-parser?retries=1', {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify(body)
-        })
-      );
-      return;
-    }
-
-    if (action === 'oauth-link') {
-      const userId = spotifyUserIdInput.value.trim() || crypto.randomUUID();
-      spotifyUserIdInput.value = userId;
-      const tripId = spotifyTripIdInput.value.trim();
-      const query = new URLSearchParams({ userId });
-      if (tripId) {
-        query.set('tripId', tripId);
-      }
-      const oauthUrl = `/auth/spotify?${query.toString()}`;
-      window.open(oauthUrl, '_blank', 'noopener');
-      setOutput(spotifyOutput, { message: 'OAuth window opened.', oauthUrl }, 'warn');
-      return;
-    }
-
-    if (action === 'token-meta') {
-      const userId = spotifyUserIdInput.value.trim();
-      if (!userId) {
-        throw new Error('User ID required.');
-      }
-      setOutput(spotifyOutput, await requestJson(`/api/spotify/tokens/${encodeURIComponent(userId)}`));
-      return;
-    }
-
-    if (action === 'refresh-token') {
-      const userId = spotifyUserIdInput.value.trim();
-      if (!userId) {
-        throw new Error('User ID required.');
-      }
-
-      setOutput(
-        spotifyOutput,
-        await requestJson('/api/spotify/refresh', {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ userId })
-        })
-      );
-      return;
-    }
-
-    if (action === 'playlist') {
-      const body = getJson(playlistBodyInput, defaultPlaylistBody);
-      setOutput(
-        playlistOutput,
-        await requestJson('/api/v1/playlists/generate', {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify(body)
-        })
-      );
-    }
+    tripReviewCard.classList.remove('hidden');
+    playlistPanel.classList.remove('hidden');
+    tripActionStatus.textContent = `Trip ready (${activeTripId}). Adjust tags and regenerate.`;
   } catch (error) {
-    const nodeByAction = {
-      health: diagnosticsOutput,
-      contract: diagnosticsOutput,
-      ingest: tripOutput,
-      status: tripOutput,
-      refresh: tripOutput,
-      'proxy-parse': tripOutput,
-      'oauth-link': spotifyOutput,
-      'token-meta': spotifyOutput,
-      'refresh-token': spotifyOutput,
-      playlist: playlistOutput
-    };
-
-    setOutput(nodeByAction[action] || diagnosticsOutput, error.message, 'error');
+    tripActionStatus.textContent = error.message;
+  } finally {
+    loaderCard.classList.add('hidden');
   }
 }
 
-document.querySelectorAll('[data-action]').forEach((button) => {
-  button.addEventListener('click', () => {
-    runAction(button.dataset.action);
-  });
-});
+async function regeneratePlaylist() {
+  if (!activeTripId) {
+    tripActionStatus.textContent = 'Load a shared trip first.';
+    return;
+  }
 
-initDefaults();
+  try {
+    const refresh = await requestJson(`/api/v1/trips/${encodeURIComponent(activeTripId)}/refresh`, { method: 'POST' });
+    tripActionStatus.textContent = `Playlist inputs refreshed (${refresh.status}) with tags: ${Array.from(selectedTags).join(', ')}.`;
+  } catch (error) {
+    tripActionStatus.textContent = error.message;
+  }
+}
+
+async function scheduleReminder() {
+  if (!activeTripId) {
+    tripActionStatus.textContent = 'Load a shared trip first.';
+    return;
+  }
+
+  try {
+    const userId = spotifyUserIdInput.value.trim() || null;
+    const reminder = await requestJson(`/api/v1/trips/${encodeURIComponent(activeTripId)}/reminders`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        leadMinutes: 20,
+        channel: 'in_app',
+        userId,
+        autoRefreshPlaylist: true
+      })
+    });
+
+    tripActionStatus.textContent = `Reminder scheduled for ${reminder.reminder.scheduledFor}.`;
+  } catch (error) {
+    tripActionStatus.textContent = error.message;
+  }
+}
+
+function openOauth() {
+  const userId = spotifyUserIdInput.value.trim() || crypto.randomUUID();
+  spotifyUserIdInput.value = userId;
+  window.open(`/auth/spotify?userId=${encodeURIComponent(userId)}`, '_blank', 'noopener');
+  spotifyStatus.textContent = `Spotify auth: OAuth opened for ${userId}`;
+  spotifyStatus.classList.add('status-good');
+}
+
+simulateShareButton.addEventListener('click', simulateShareIngest);
+regeneratePlaylistButton.addEventListener('click', regeneratePlaylist);
+scheduleReminderButton.addEventListener('click', scheduleReminder);
+openOauthButton.addEventListener('click', openOauth);
+
+renderTags();
 setupServiceWorker();
