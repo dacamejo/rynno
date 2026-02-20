@@ -1,5 +1,9 @@
 const swStatus = document.getElementById('sw-status');
 const spotifyStatus = document.getElementById('spotify-status');
+const spotifyProfile = document.getElementById('spotify-profile');
+const spotifyAvatar = document.getElementById('spotify-avatar');
+const spotifyDisplayName = document.getElementById('spotify-display-name');
+const spotifyAccountId = document.getElementById('spotify-account-id');
 const simulateShareButton = document.getElementById('simulate-share');
 const loaderCard = document.getElementById('loader-card');
 const tripReviewCard = document.getElementById('trip-review');
@@ -12,6 +16,7 @@ const scheduleReminderButton = document.getElementById('schedule-reminder');
 const openOauthButton = document.getElementById('open-oauth');
 const spotifyUserIdInput = document.getElementById('spotify-user-id');
 
+const SPOTIFY_AUTH_STORAGE_KEY = 'rynno.spotify.auth';
 const TAGS = ['Solo', 'Couple', 'Family', 'Celebration', 'Surprise'];
 const selectedTags = new Set(['Solo']);
 const tripTemplate = {
@@ -32,6 +37,61 @@ const tripTemplate = {
 };
 
 let activeTripId = null;
+
+function readStoredSpotifyAuth() {
+  try {
+    const raw = localStorage.getItem(SPOTIFY_AUTH_STORAGE_KEY);
+    if (!raw) return null;
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+}
+
+function saveStoredSpotifyAuth(auth) {
+  localStorage.setItem(SPOTIFY_AUTH_STORAGE_KEY, JSON.stringify(auth));
+}
+
+function renderSpotifyAuth(auth) {
+  if (!auth?.userId || !auth?.spotifyUserId) {
+    spotifyStatus.textContent = 'Spotify auth: Not connected';
+    spotifyStatus.classList.remove('status-good');
+    spotifyProfile.classList.add('hidden');
+    return;
+  }
+
+  spotifyStatus.textContent = `Spotify connected${auth.expiresAt ? ` · expires ${new Date(auth.expiresAt).toLocaleString()}` : ''}`;
+  spotifyStatus.classList.add('status-good');
+  spotifyProfile.classList.remove('hidden');
+  spotifyDisplayName.textContent = auth.displayName || 'Spotify user';
+  spotifyAccountId.textContent = `Spotify ID: ${auth.spotifyUserId}`;
+  spotifyAvatar.src = auth.avatarUrl || 'https://developer.spotify.com/assets/branding-guidelines/icon3@2x.png';
+  spotifyUserIdInput.value = auth.userId;
+}
+
+function consumeSpotifyAuthCallback() {
+  const url = new URL(window.location.href);
+  if (url.searchParams.get('spotifyAuth') !== 'connected') return;
+
+  const auth = {
+    userId: url.searchParams.get('userId') || '',
+    spotifyUserId: url.searchParams.get('spotifyUserId') || '',
+    expiresAt: url.searchParams.get('expiresAt') || null,
+    displayName: url.searchParams.get('displayName') || null,
+    avatarUrl: url.searchParams.get('avatarUrl') || null,
+    tripId: url.searchParams.get('tripId') || null
+  };
+
+  if (auth.userId && auth.spotifyUserId) {
+    saveStoredSpotifyAuth(auth);
+    renderSpotifyAuth(auth);
+  }
+
+  ['spotifyAuth', 'userId', 'spotifyUserId', 'expiresAt', 'displayName', 'avatarUrl', 'tripId'].forEach((key) => {
+    url.searchParams.delete(key);
+  });
+  history.replaceState({}, '', url.toString());
+}
 
 function renderTags() {
   tagChipsContainer.innerHTML = '';
@@ -160,9 +220,10 @@ async function scheduleReminder() {
 function openOauth() {
   const userId = spotifyUserIdInput.value.trim() || crypto.randomUUID();
   spotifyUserIdInput.value = userId;
-  window.open(`/auth/spotify?userId=${encodeURIComponent(userId)}`, '_blank', 'noopener');
-  spotifyStatus.textContent = `Spotify auth: OAuth opened for ${userId}`;
-  spotifyStatus.classList.add('status-good');
+
+  const returnTo = `${window.location.origin}${window.location.pathname}`;
+  const oauthUrl = `/auth/spotify?userId=${encodeURIComponent(userId)}&returnTo=${encodeURIComponent(returnTo)}`;
+  window.location.assign(oauthUrl);
 }
 
 simulateShareButton.addEventListener('click', simulateShareIngest);
@@ -172,3 +233,5 @@ openOauthButton.addEventListener('click', openOauth);
 
 renderTags();
 setupServiceWorker();
+consumeSpotifyAuthCallback();
+renderSpotifyAuth(readStoredSpotifyAuth());

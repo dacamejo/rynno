@@ -13,6 +13,21 @@ function buildSpotifyRedirectUri(req) {
   return `${getBaseUrl(req)}/auth/spotify/callback`;
 }
 
+function resolveSafeReturnTo(req) {
+  const baseUrl = getBaseUrl(req);
+  const candidate = req.query.returnTo;
+  if (!candidate) return `${baseUrl}/`;
+
+  try {
+    const parsed = new URL(candidate, baseUrl);
+    const baseOrigin = new URL(baseUrl).origin;
+    if (parsed.origin !== baseOrigin) return `${baseUrl}/`;
+    return `${parsed.origin}${parsed.pathname}${parsed.search}${parsed.hash}`;
+  } catch {
+    return `${baseUrl}/`;
+  }
+}
+
 function putAuthState(record) {
   const state = crypto.randomBytes(24).toString('hex');
   authStateStore.set(state, { ...record, createdAt: Date.now() });
@@ -56,7 +71,8 @@ function createAuthController({ spotifyClient, upsertUser, saveOAuthToken, getOA
       const userId = resolveUserId(req.query);
       const tripId = req.query.tripId || null;
       const scopes = req.query.scopes || process.env.SPOTIFY_SCOPES || DEFAULT_SPOTIFY_SCOPES;
-      const state = putAuthState({ userId, tripId });
+      const returnTo = resolveSafeReturnTo(req);
+      const state = putAuthState({ userId, tripId, returnTo });
 
       const params = new URLSearchParams({
         response_type: 'code',
@@ -98,10 +114,34 @@ function createAuthController({ spotifyClient, upsertUser, saveOAuthToken, getOA
           scope: tokenResponse.scope,
           tokenType: tokenResponse.tokenType,
           expiresAt,
-          metadata: { spotifyUserId: profile.id, tripId: authRecord.tripId, displayName: profile.display_name || null }
+          metadata: {
+            spotifyUserId: profile.id,
+            tripId: authRecord.tripId,
+            displayName: profile.display_name || null,
+            avatarUrl: profile.images?.[0]?.url || null,
+            email: profile.email || null
+          }
         });
+        const callbackParams = new URLSearchParams({
+          spotifyAuth: 'connected',
+          userId: authRecord.userId,
+          spotifyUserId: profile.id,
+          expiresAt,
+          displayName: profile.display_name || '',
+          avatarUrl: profile.images?.[0]?.url || ''
+        });
+        if (authRecord.tripId) callbackParams.set('tripId', authRecord.tripId);
 
-        return res.status(200).json({ status: 'connected', userId: authRecord.userId, tripId: authRecord.tripId, spotifyUserId: profile.id, expiresAt });
+        const returnToUrl = new URL(authRecord.returnTo || `${getBaseUrl(req)}/`);
+        returnToUrl.searchParams.set('spotifyAuth', callbackParams.get('spotifyAuth'));
+        returnToUrl.searchParams.set('userId', callbackParams.get('userId'));
+        returnToUrl.searchParams.set('spotifyUserId', callbackParams.get('spotifyUserId'));
+        returnToUrl.searchParams.set('expiresAt', callbackParams.get('expiresAt'));
+        if (callbackParams.get('displayName')) returnToUrl.searchParams.set('displayName', callbackParams.get('displayName'));
+        if (callbackParams.get('avatarUrl')) returnToUrl.searchParams.set('avatarUrl', callbackParams.get('avatarUrl'));
+        if (authRecord.tripId) returnToUrl.searchParams.set('tripId', authRecord.tripId);
+
+        return res.redirect(returnToUrl.toString());
       } catch (callbackError) {
         throw new AppError('Unable to finish Spotify authorization flow.', {
           statusCode: 500,
