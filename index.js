@@ -15,7 +15,10 @@ const {
   getReminder,
   listDueReminders,
   markReminderStatus,
-  listTripsForRefresh
+  listTripsForRefresh,
+  recordFeedbackEvent,
+  listFeedbackEvents,
+  getFeedbackDashboard
 } = require('./src/db');
 const {
   getReminderScheduleTime,
@@ -120,6 +123,28 @@ function getErrorCauseDetails(error) {
   }
 
   return parts.filter(Boolean).join(' | ') || 'Unknown error';
+}
+
+
+const SUPPORTED_FEEDBACK_EVENT_TYPES = new Set([
+  'thumbs_up',
+  'thumbs_down',
+  'feedback_text',
+  'playlist_regenerated',
+  'parse_success',
+  'parse_failure',
+  'guardrail_failure',
+  'track_skipped',
+  'reminder_sent',
+  'reminder_failed'
+]);
+
+async function safeRecordFeedbackEvent(payload) {
+  try {
+    await recordFeedbackEvent(payload);
+  } catch (error) {
+    console.warn('Unable to persist feedback event', { eventType: payload?.eventType, error: getErrorCauseDetails(error) });
+  }
 }
 
 async function createStoreEntry({ canonical, payload, metadata, source, status, errors }) {
@@ -311,6 +336,18 @@ app.post('/api/v1/trips/ingest', async (req, res) => {
     });
 
     await saveTripEntry(tripId, storeEntry);
+    await safeRecordFeedbackEvent({
+      eventType: 'parse_success',
+      userId: metadata?.userId || null,
+      tripId,
+      outcome: canonical?.validation?.needsManualReview ? 'manual_review_required' : 'parsed',
+      context: {
+        source: normalizedSource,
+        confidenceScore: canonical?.validation?.confidenceScore || null,
+        manualCorrectionRequired: canonical?.validation?.needsManualReview || false
+      }
+    });
+
     return res.status(201).json({
       tripId,
       status: storeEntry.status,
@@ -333,6 +370,16 @@ app.post('/api/v1/trips/ingest', async (req, res) => {
     });
 
     await saveTripEntry(tripId, storeEntry);
+    await safeRecordFeedbackEvent({
+      eventType: 'parse_failure',
+      userId: metadata?.userId || null,
+      tripId,
+      outcome: 'error',
+      context: {
+        source: normalizedSource,
+        errors: [details]
+      }
+    });
     console.error('Trip ingestion failed', { tripId, error: details });
     return res.status(400).json({ tripId, status: storeEntry.status, errors: storeEntry.errors });
   }
@@ -462,6 +509,27 @@ app.post('/api/v1/reminders/dispatch-due', async (req, res) => {
     }
   });
 
+  await Promise.all([
+    ...(summary.sent || []).map((reminder) =>
+      safeRecordFeedbackEvent({
+        eventType: 'reminder_sent',
+        userId: reminder.user_id || null,
+        tripId: reminder.trip_id || null,
+        reminderId: reminder.reminder_id || null,
+        outcome: 'sent',
+        context: { channel: reminder.channel || null, scheduledFor: reminder.scheduled_for || null }
+      })
+    ),
+    ...(summary.failed || []).map((failure) =>
+      safeRecordFeedbackEvent({
+        eventType: 'reminder_failed',
+        reminderId: failure.reminderId || null,
+        outcome: 'failed',
+        context: { error: failure.error || 'unknown reminder dispatch error' }
+      })
+    )
+  ]);
+
   return res.json(summary);
 });
 
@@ -560,6 +628,36 @@ app.post('/api/v1/playlists/generate', async (req, res) => {
 
   try {
     const playlist = await generatePlaylist({ trip, preferences, spotify });
+
+    const failedGuardrailAttempts = (playlist.guardrailAttempts || []).filter((attempt) => !attempt.pass);
+    if (failedGuardrailAttempts.length) {
+      await safeRecordFeedbackEvent({
+        eventType: 'guardrail_failure',
+        userId: spotify.userId || trip?.metadata?.userId || null,
+        tripId: trip.tripId || null,
+        playlistId: playlist.playlistId || null,
+        outcome: 'retry_recovered',
+        context: {
+          failedAttempts: failedGuardrailAttempts.length,
+          reasons: failedGuardrailAttempts.flatMap((attempt) => attempt.reasons || []).slice(0, 8)
+        }
+      });
+    }
+
+    if (req.body?.isRegeneration || req.body?.regeneratedFromPlaylistId) {
+      await safeRecordFeedbackEvent({
+        eventType: 'playlist_regenerated',
+        userId: spotify.userId || trip?.metadata?.userId || null,
+        tripId: trip.tripId || null,
+        playlistId: playlist.playlistId || null,
+        outcome: 'created',
+        context: {
+          regeneratedFromPlaylistId: req.body?.regeneratedFromPlaylistId || null,
+          tags: preferences?.tags || []
+        }
+      });
+    }
+
     return res.status(200).json(playlist);
   } catch (error) {
     const details = getErrorCauseDetails(error);
@@ -569,6 +667,64 @@ app.post('/api/v1/playlists/generate', async (req, res) => {
       details
     });
   }
+});
+
+
+app.post('/api/v1/feedback/events', async (req, res) => {
+  const {
+    eventType,
+    userId = null,
+    tripId = null,
+    reminderId = null,
+    playlistId = null,
+    rating = null,
+    feedbackText = null,
+    outcome = null,
+    context = {},
+    occurredAt = new Date().toISOString()
+  } = req.body || {};
+
+  if (!eventType || !SUPPORTED_FEEDBACK_EVENT_TYPES.has(eventType)) {
+    return res.status(400).json({
+      error: 'Unsupported eventType.',
+      supportedEventTypes: [...SUPPORTED_FEEDBACK_EVENT_TYPES]
+    });
+  }
+
+  const event = await recordFeedbackEvent({
+    eventType,
+    userId,
+    tripId,
+    reminderId,
+    playlistId,
+    rating,
+    feedbackText,
+    outcome,
+    context: context && typeof context === 'object' ? context : {},
+    occurredAt
+  });
+
+  return res.status(201).json({ status: 'recorded', event });
+});
+
+app.get('/api/v1/feedback/events', async (req, res) => {
+  const events = await listFeedbackEvents({
+    userId: req.query.userId || null,
+    tripId: req.query.tripId || null,
+    eventType: req.query.eventType || null,
+    limit: req.query.limit || 100
+  });
+
+  return res.json({ count: events.length, events });
+});
+
+app.get('/api/v1/feedback/dashboard', async (req, res) => {
+  const dashboard = await getFeedbackDashboard({
+    days: req.query.days || 30,
+    userId: req.query.userId || null
+  });
+
+  return res.json(dashboard);
 });
 
 app.get('/api/trip-parser/contract', (_req, res) => {
