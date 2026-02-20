@@ -79,6 +79,39 @@ function buildReauthSignal({ userId, reason }) {
   };
 }
 
+function getErrorCauseDetails(error) {
+  if (!error) {
+    return 'Unknown error';
+  }
+
+  if (error.response) {
+    const { status, data } = error.response;
+    if (typeof data === 'string' && data.trim()) {
+      return `HTTP ${status}: ${data}`;
+    }
+
+    if (data && typeof data === 'object') {
+      const responseError = data.error_description || data.error?.message || data.error || data.message;
+      if (responseError) {
+        return `HTTP ${status}: ${responseError}`;
+      }
+      return `HTTP ${status}: ${JSON.stringify(data)}`;
+    }
+
+    return `HTTP ${status}`;
+  }
+
+  const parts = [error.message];
+  if (error.code) {
+    parts.push(`code=${error.code}`);
+  }
+  if (error.cause && error.cause !== error.message) {
+    parts.push(`cause=${error.cause}`);
+  }
+
+  return parts.filter(Boolean).join(' | ') || 'Unknown error';
+}
+
 async function createStoreEntry({ canonical, payload, metadata, source, status, errors }) {
   return {
     status,
@@ -170,8 +203,13 @@ app.get('/auth/spotify/callback', async (req, res) => {
       expiresAt
     });
   } catch (callbackError) {
-    console.error('Spotify callback failed', { error: callbackError.message });
-    return res.status(500).json({ error: 'Unable to finish Spotify authorization flow.' });
+    const details = getErrorCauseDetails(callbackError);
+    console.error('Spotify callback failed', { error: details });
+    return res.status(500).json({
+      error: 'Unable to finish Spotify authorization flow.',
+      details,
+      hint: 'Check Spotify app credentials, redirect URI, and authorization code validity.'
+    });
   }
 });
 
@@ -215,10 +253,11 @@ app.post('/api/spotify/refresh', async (req, res) => {
 
     return res.json({ status: 'refreshed', userId, expiresAt });
   } catch (refreshError) {
-    const needsReauth = /invalid_grant/i.test(refreshError.message);
+    const details = getErrorCauseDetails(refreshError);
+    const needsReauth = /invalid_grant/i.test(details);
     return res.status(400).json({
       error: 'Unable to refresh Spotify token.',
-      details: refreshError.message,
+      details,
       reauth: needsReauth ? buildReauthSignal({ userId, reason: 'invalid_grant' }) : null
     });
   }
@@ -273,17 +312,18 @@ app.post('/api/v1/trips/ingest', async (req, res) => {
           : null
     });
   } catch (error) {
+    const details = getErrorCauseDetails(error);
     const storeEntry = await createStoreEntry({
       canonical: null,
       payload,
       metadata,
       source: normalizedSource,
       status: 'error',
-      errors: [error.message]
+      errors: [details]
     });
 
     await saveTripEntry(tripId, storeEntry);
-    console.error('Trip ingestion failed', { tripId, error: error.message });
+    console.error('Trip ingestion failed', { tripId, error: details });
     return res.status(400).json({ tripId, status: storeEntry.status, errors: storeEntry.errors });
   }
 });
@@ -332,17 +372,18 @@ app.post('/api/v1/trips/:tripId/refresh', async (req, res) => {
       manualCorrectionRequired: canonical?.validation?.needsManualReview || false
     });
   } catch (error) {
+    const details = getErrorCauseDetails(error);
     const updatedEntry = await createStoreEntry({
       canonical: null,
       payload,
       metadata,
       source: entry.source,
       status: 'error',
-      errors: [error.message]
+      errors: [details]
     });
 
     await saveTripEntry(tripId, updatedEntry);
-    console.error('Trip refresh failed', { tripId, error: error.message });
+    console.error('Trip refresh failed', { tripId, error: details });
     return res.status(500).json({ tripId, status: updatedEntry.status, errors: updatedEntry.errors });
   }
 });
@@ -361,8 +402,12 @@ app.post('/api/v1/playlists/generate', async (req, res) => {
     const playlist = await generatePlaylist({ trip, preferences, spotify });
     return res.status(200).json(playlist);
   } catch (error) {
-    console.error('Playlist generation failed', { error: error.message });
-    return res.status(500).json({ error: error.message });
+    const details = getErrorCauseDetails(error);
+    console.error('Playlist generation failed', { error: details });
+    return res.status(500).json({
+      error: 'Playlist generation failed.',
+      details
+    });
   }
 });
 
@@ -404,7 +449,11 @@ app.post('/api/trip-parser', async (req, res) => {
 
       const result = await response.json();
       if (!response.ok) {
-        throw new Error(result.errors?.join(', ') || result.error || 'Parser request failed');
+        throw new Error(
+          `Ingest endpoint responded with HTTP ${response.status}: ${
+            result.errors?.join(', ') || result.error || 'Parser request failed'
+          }`
+        );
       }
 
       return res.status(200).json({ ...result, attempts: attempt + 1 });
@@ -416,7 +465,7 @@ app.post('/api/trip-parser', async (req, res) => {
 
   return res.status(502).json({
     error: 'Trip parser request failed after retries.',
-    details: lastError?.message || 'Unknown error',
+    details: getErrorCauseDetails(lastError),
     attempts: attempt
   });
 });
