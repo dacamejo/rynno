@@ -1,6 +1,4 @@
 const { URL, URLSearchParams } = require('url');
-const crypto = require('crypto');
-
 const REGION_HINTS = [
   { pattern: /Z[üu]rich/i, region: 'Zurich & Zurich Oberland', languages: ['de'], locale: 'de-CH' },
   { pattern: /Gen[èe]ve|Geneva/i, region: 'Lake Geneva (Romandie)', languages: ['fr'], locale: 'fr-CH' },
@@ -29,11 +27,22 @@ const ENERGY_CUE_MAP = {
   Regio: 'calm',
   Tram: 'calm',
   Bus: 'calm',
-  Walk: 'calm'
+  Walk: 'calm',
+  TRANSIT: 'medium',
+  DRIVING: 'high',
+  BICYCLING: 'medium',
+  WALKING: 'calm'
 };
 
 const DEFAULT_CONFIDENCE = 60;
 const MANUAL_CONFIDENCE = 70;
+const CONFIDENCE_MANUAL_REVIEW_THRESHOLD = 70;
+
+function parseTextForFirstUrl(input) {
+  if (!input || typeof input !== 'string') return null;
+  const match = input.match(/https?:\/\/[^\s]+/i);
+  return match ? match[0] : null;
+}
 
 function parseSbbShareUrl(sbbUrl) {
   if (!sbbUrl) {
@@ -42,12 +51,61 @@ function parseSbbShareUrl(sbbUrl) {
 
   const parsed = new URL(sbbUrl);
   const q = parsed.searchParams;
-  const from = q.get('von') || q.get('from');
-  const to = q.get('nach') || q.get('to');
+  const from = q.get('von') || q.get('from') || q.get('fromStation');
+  const to = q.get('nach') || q.get('to') || q.get('toStation');
   const date = q.get('date');
   const time = q.get('time');
   const journey = q.get('journeyId') || q.get('journey');
   return { from, to, date, time, journey };
+}
+
+function parseGoogleShareUrl(googleUrl) {
+  if (!googleUrl) {
+    throw new Error('Google Maps URL is required for the Google adapter.');
+  }
+
+  const parsed = new URL(googleUrl);
+  const q = parsed.searchParams;
+  const origin = q.get('origin') || q.get('saddr');
+  const destination = q.get('destination') || q.get('daddr');
+  const travelMode = (q.get('travelmode') || q.get('mode') || 'transit').toLowerCase();
+  const departureEpoch = q.get('departure_time') || q.get('depart') || null;
+  const arrivalEpoch = q.get('arrival_time') || null;
+  const waypoints = (q.get('waypoints') || '')
+    .split('|')
+    .map((item) => item.trim())
+    .filter(Boolean);
+
+  let departureTime = null;
+  if (departureEpoch && /^\d+$/.test(departureEpoch)) {
+    const dt = new Date(Number(departureEpoch) * 1000);
+    departureTime = Number.isNaN(dt.getTime()) ? null : dt;
+  }
+
+  return {
+    origin,
+    destination,
+    travelMode,
+    departureTime,
+    arrivalTime: arrivalEpoch,
+    waypoints
+  };
+}
+
+function detectSourceFromPayload(payload = {}) {
+  const url = payload.url || payload.sharedUrl || parseTextForFirstUrl(payload.sharedText || payload.text || '');
+  if (!url) return 'manual';
+
+  try {
+    const parsed = new URL(url);
+    const host = parsed.hostname.toLowerCase();
+    if (host.includes('sbb.ch')) return 'sbb';
+    if (host.includes('google.') || host.includes('goo.gl')) return 'google';
+  } catch (_error) {
+    return 'manual';
+  }
+
+  return 'manual';
 }
 
 function normalizeDateTime(dateParam, timeParam) {
@@ -238,6 +296,58 @@ async function fetchSbbConnection(query) {
   return payload.connections?.[0] ?? null;
 }
 
+function buildValidation(canonical) {
+  const issues = [];
+  const warnings = [];
+  let scoreDelta = 0;
+
+  if (!canonical.legs?.length) {
+    issues.push('No trip legs parsed.');
+    scoreDelta -= 45;
+  }
+
+  if (!canonical.firstDeparture || !canonical.finalArrival) {
+    issues.push('Missing departure/arrival timestamps.');
+    scoreDelta -= 20;
+  }
+
+  const hasMissingStations = canonical.legs?.some((leg) => !leg.departureStation || !leg.arrivalStation);
+  if (hasMissingStations) {
+    warnings.push('Some legs are missing station names.');
+    scoreDelta -= 8;
+  }
+
+  const hasMissingDurations = canonical.legs?.some((leg) => !leg.durationSeconds || leg.durationSeconds <= 0);
+  if (hasMissingDurations) {
+    warnings.push('Some legs are missing valid durations.');
+    scoreDelta -= 10;
+  }
+
+  if (!canonical.preferredRegions?.length) {
+    warnings.push('No region hints inferred from parsed stations.');
+    scoreDelta -= 5;
+  }
+
+  if (canonical.metadata?.fallback) {
+    warnings.push(`Fallback path used: ${canonical.metadata.fallback}`);
+    scoreDelta -= 12;
+  }
+
+  if (canonical.source === 'google' && canonical.metadata?.google?.waypointCount > 2) {
+    warnings.push('Google route has multiple waypoints; leg detail may be coarse.');
+    scoreDelta -= 5;
+  }
+
+  const score = Math.max(0, Math.min(100, canonical.confidenceScore + scoreDelta));
+  return {
+    score,
+    threshold: CONFIDENCE_MANUAL_REVIEW_THRESHOLD,
+    needsManualReview: score < CONFIDENCE_MANUAL_REVIEW_THRESHOLD,
+    issues,
+    warnings
+  };
+}
+
 function buildCanonicalTrip({
   tripId,
   source,
@@ -290,9 +400,13 @@ function buildCanonicalTrip({
     confidenceScore: Math.min(100, Math.max(0, confidence)),
     metadata: {
       fallback: fallbackReason,
-      rawPayload
+      rawPayload,
+      parserVersion: 'v2-adapters-validation'
     }
   };
+
+  summary.validation = buildValidation(summary);
+  summary.confidenceScore = summary.validation.score;
 
   return summary;
 }
@@ -319,7 +433,8 @@ function createFallbackLeg(parsed, metadata = {}) {
 }
 
 async function runSbbAdapter({ tripId, payload, metadata = {} }) {
-  const parsed = parseSbbShareUrl(payload.url);
+  const sourceUrl = payload.url || payload.sharedUrl || parseTextForFirstUrl(payload.sharedText || payload.text || '');
+  const parsed = parseSbbShareUrl(sourceUrl);
   if (!parsed.from || !parsed.to || !parsed.date) {
     throw new Error('Share link lacks required origin/destination/date information.');
   }
@@ -359,6 +474,50 @@ async function runSbbAdapter({ tripId, payload, metadata = {} }) {
   });
 
   return canonical;
+}
+
+function runGoogleAdapter({ tripId, payload, metadata = {} }) {
+  const sourceUrl = payload.url || payload.sharedUrl || parseTextForFirstUrl(payload.sharedText || payload.text || '');
+  const parsed = parseGoogleShareUrl(sourceUrl);
+
+  if (!parsed.origin || !parsed.destination) {
+    throw new Error('Google Maps link lacks origin or destination.');
+  }
+
+  const departureDate = parsed.departureTime || new Date();
+  const durationMinutes = metadata.durationMinutes || (parsed.travelMode === 'walking' ? 35 : 70);
+  const arrivalDate = new Date(departureDate.getTime() + durationMinutes * 60 * 1000);
+
+  const leg = {
+    index: 0,
+    mode: parsed.travelMode === 'transit' ? 'train' : parsed.travelMode,
+    departureTime: departureDate.toISOString(),
+    arrivalTime: arrivalDate.toISOString(),
+    durationSeconds: durationMinutes * 60,
+    departureStation: parsed.origin,
+    arrivalStation: parsed.destination,
+    platform: null,
+    serviceName: `Google Maps ${parsed.travelMode}`,
+    energyCue: mapEnergyCue(parsed.travelMode.toUpperCase(), parsed.travelMode),
+    distanceMeters: metadata.distanceMeters ?? null,
+    prognosis: { source: 'google-share-link' }
+  };
+
+  return buildCanonicalTrip({
+    tripId,
+    source: 'google',
+    legs: [leg],
+    metadata: {
+      ...metadata,
+      google: {
+        waypoints: parsed.waypoints,
+        waypointCount: parsed.waypoints.length
+      }
+    },
+    rawPayload: payload,
+    confidence: DEFAULT_CONFIDENCE + 8,
+    fallbackReason: 'google-share-summary'
+  });
 }
 
 function validateManualPayload(payload) {
@@ -404,19 +563,25 @@ function runManualAdapter({ tripId, payload, metadata = {} }) {
 
 async function runAdapter({ tripId, source, payload, metadata = {} }) {
   const normalizedSource = (source || payload?.source || 'manual').toLowerCase();
-  switch (normalizedSource) {
+  const detectedSource = normalizedSource === 'share_target' ? detectSourceFromPayload(payload) : normalizedSource;
+
+  switch (detectedSource) {
     case 'sbb':
       return runSbbAdapter({ tripId, payload, metadata });
+    case 'google':
+      return runGoogleAdapter({ tripId, payload, metadata });
     case 'manual':
       return runManualAdapter({ tripId, payload, metadata });
     default:
-      throw new Error(`Unsupported source '${normalizedSource}'. Supported sources: sbb, manual.`);
+      throw new Error(`Unsupported source '${detectedSource}'. Supported sources: sbb, google, manual, share_target.`);
   }
 }
 
 module.exports = {
   runAdapter,
   parseSbbShareUrl,
+  parseGoogleShareUrl,
   normalizeDateTime,
-  buildCanonicalTrip
+  buildCanonicalTrip,
+  buildValidation
 };

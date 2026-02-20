@@ -54,7 +54,16 @@ app.post('/api/v1/trips/ingest', async (req, res) => {
     });
 
     await saveTripEntry(tripId, storeEntry);
-    return res.status(201).json({ tripId, status: storeEntry.status, canonical });
+    return res.status(201).json({
+      tripId,
+      status: storeEntry.status,
+      canonical,
+      manualCorrectionRequired: canonical?.validation?.needsManualReview || false,
+      manualCorrectionPrompt:
+        canonical?.validation?.needsManualReview
+          ? 'We need a few more trip details to fine-tune your playlist. Please confirm route and timing.'
+          : null
+    });
   } catch (error) {
     const storeEntry = await createStoreEntry({
       tripId,
@@ -110,7 +119,12 @@ app.post('/api/v1/trips/:tripId/refresh', async (req, res) => {
     });
 
     await saveTripEntry(tripId, updatedEntry);
-    return res.json({ tripId, status: updatedEntry.status, canonical });
+    return res.json({
+      tripId,
+      status: updatedEntry.status,
+      canonical,
+      manualCorrectionRequired: canonical?.validation?.needsManualReview || false
+    });
   } catch (error) {
     const updatedEntry = await createStoreEntry({
       tripId,
