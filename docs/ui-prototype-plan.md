@@ -72,3 +72,5 @@ Each component should be responsive; cards stack vertically with consistent gaps
 - [ ] `CHANGELOG.md` entry or release note (if we maintain one) describing the share-to-UI work.
 
 Let me know if you’d like sketches or Figma references next, or if we should spin up a simple Storybook preview for the hero/trip/playlist cards.
+## Implementation handoff
+- For execution sequencing and release criteria, see `docs/ui-playlist-functional-plan.md`.
