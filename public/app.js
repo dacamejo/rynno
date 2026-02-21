@@ -9,7 +9,8 @@ const loaderCard = document.getElementById('loader-card');
 const tripReviewCard = document.getElementById('trip-review');
 const playlistPanel = document.getElementById('playlist-panel');
 const tripSummary = document.getElementById('trip-summary');
-const tagChipsContainer = document.getElementById('tag-chips');
+const companionChipsContainer = document.getElementById('companion-chips');
+const moodInput = document.getElementById('mood-input');
 const tripActionStatus = document.getElementById('trip-action-status');
 const regeneratePlaylistButton = document.getElementById('regenerate-playlist');
 const scheduleReminderButton = document.getElementById('schedule-reminder');
@@ -17,8 +18,8 @@ const openOauthButton = document.getElementById('open-oauth');
 const spotifyUserIdInput = document.getElementById('spotify-user-id');
 
 const SPOTIFY_AUTH_STORAGE_KEY = 'rynno.spotify.auth';
-const TAGS = ['Solo', 'Couple', 'Family', 'Celebration', 'Surprise'];
-const selectedTags = new Set(['Solo']);
+const COMPANIONS = ['Solo', 'Couple', 'Family', 'Kids', 'Friends'];
+const selectedCompanions = new Set(['Solo']);
 const tripTemplate = {
   source: 'manual',
   metadata: {
@@ -60,7 +61,7 @@ function renderSpotifyAuth(auth) {
     return;
   }
 
-  spotifyStatus.textContent = `Spotify connected${auth.expiresAt ? ` · expires ${new Date(auth.expiresAt).toLocaleString()}` : ''}`;
+  spotifyStatus.textContent = 'Spotify connected';
   spotifyStatus.classList.add('status-good');
   spotifyProfile.classList.remove('hidden');
   spotifyDisplayName.textContent = auth.displayName || 'Spotify user';
@@ -93,30 +94,30 @@ function consumeSpotifyAuthCallback() {
   history.replaceState({}, '', url.toString());
 }
 
-function renderTags() {
-  tagChipsContainer.innerHTML = '';
-  TAGS.forEach((tag) => {
+function renderCompanions() {
+  companionChipsContainer.innerHTML = '';
+  COMPANIONS.forEach((companion) => {
     const chip = document.createElement('button');
     chip.type = 'button';
     chip.className = 'chip';
-    chip.textContent = tag;
-    chip.setAttribute('aria-pressed', String(selectedTags.has(tag)));
+    chip.textContent = companion;
+    chip.setAttribute('aria-pressed', String(selectedCompanions.has(companion)));
     chip.addEventListener('click', () => {
-      if (selectedTags.has(tag)) {
-        selectedTags.delete(tag);
+      if (selectedCompanions.has(companion)) {
+        selectedCompanions.delete(companion);
       } else {
-        selectedTags.add(tag);
+        selectedCompanions.add(companion);
       }
 
-      if (!selectedTags.size) {
-        selectedTags.add('Surprise');
+      if (!selectedCompanions.size) {
+        selectedCompanions.add('Solo');
       }
 
-      renderTags();
-      tripActionStatus.textContent = `Updated tags: ${Array.from(selectedTags).join(', ')}`;
+      renderCompanions();
+      tripActionStatus.textContent = `Updated companions: ${Array.from(selectedCompanions).join(', ')}`;
     });
 
-    tagChipsContainer.appendChild(chip);
+    companionChipsContainer.appendChild(chip);
   });
 }
 
@@ -170,7 +171,7 @@ async function simulateShareIngest() {
 
     tripReviewCard.classList.remove('hidden');
     playlistPanel.classList.remove('hidden');
-    tripActionStatus.textContent = `Trip ready (${activeTripId}). Adjust tags and regenerate.`;
+    tripActionStatus.textContent = `Trip ready (${activeTripId}). Adjust companions/mood and regenerate.`;
   } catch (error) {
     tripActionStatus.textContent = error.message;
   } finally {
@@ -186,7 +187,8 @@ async function regeneratePlaylist() {
 
   try {
     const refresh = await requestJson(`/api/v1/trips/${encodeURIComponent(activeTripId)}/refresh`, { method: 'POST' });
-    tripActionStatus.textContent = `Playlist inputs refreshed (${refresh.status}) with tags: ${Array.from(selectedTags).join(', ')}.`;
+    const mood = moodInput.value.trim() || 'none';
+    tripActionStatus.textContent = `Inputs refreshed (${refresh.status}) with companions: ${Array.from(selectedCompanions).join(', ')} · mood: ${mood}. (Preview card remains mocked in this prototype.)`;
   } catch (error) {
     tripActionStatus.textContent = error.message;
   }
@@ -231,7 +233,7 @@ regeneratePlaylistButton.addEventListener('click', regeneratePlaylist);
 scheduleReminderButton.addEventListener('click', scheduleReminder);
 openOauthButton.addEventListener('click', openOauth);
 
-renderTags();
+renderCompanions();
 setupServiceWorker();
 consumeSpotifyAuthCallback();
 renderSpotifyAuth(readStoredSpotifyAuth());

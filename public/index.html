@@ -143,6 +143,7 @@
       .footer-nav button { flex: 1; }
 
       .status-good { color: #106333; }
+      .status-note { color: #6b7280; }
     </style>
   </head>
   <body>
@@ -167,26 +168,14 @@
         <h2>Trip review</h2>
         <p class="muted" id="trip-summary">No trip loaded yet.</p>
         <div>
-          <h3>Companions & mood tags</h3>
-          <div class="row" id="tag-chips"></div>
+          <h3>Companions</h3>
+          <div class="row" id="companion-chips"></div>
         </div>
 
         <div class="stack">
-          <label for="language-select"><strong>Language vibe</strong></label>
-          <select id="language-select" class="toggle">
-            <option>Surprise me</option>
-            <option>Swiss German</option>
-            <option>French</option>
-            <option>Italian</option>
-            <option>English</option>
-          </select>
-
-          <label for="region-select"><strong>Region focus</strong></label>
-          <select id="region-select" class="toggle">
-            <option>Switzerland</option>
-            <option>Alpine Europe</option>
-            <option>Global mix</option>
-          </select>
+          <label for="mood-input"><strong>Mood notes</strong></label>
+          <input id="mood-input" class="toggle" placeholder="e.g., calm sunrise, cozy, adventurous" />
+          <p class="small muted">Free-text mood hints are captured now and interpreted by the LLM planner in a later phase.</p>
         </div>
 
         <div class="row">
@@ -197,8 +186,8 @@
       </section>
 
       <section class="card stack hidden" id="playlist-panel">
-        <h2>Playlist storytelling</h2>
-        <p class="muted">Mood profile updates when tags/region change.</p>
+        <h2>Playlist preview (prototype)</h2>
+        <p class="muted">This card is mock data for UI testing only. Live Spotify playlist generation is not wired to this panel yet.</p>
         <div class="track"><strong>Golden Hour Departure</strong><br /><span class="small">Energy 0.48 · Valence 0.62</span></div>
         <div class="track"><strong>Platform Echoes</strong><br /><span class="small">Energy 0.55 · Valence 0.58</span></div>
         <div class="track"><strong>Summit Afterglow</strong><br /><span class="small">Energy 0.43 · Valence 0.71</span></div>
@@ -208,6 +197,7 @@
         <h2>Settings & history</h2>
         <p class="small" id="sw-status">Registering service worker…</p>
         <p class="small" id="spotify-status">Spotify auth: Not connected</p>
+        <p class="small status-note" id="spotify-token-note">Spotify uses short-lived access tokens behind the scenes and renews them automatically.</p>
         <div id="spotify-profile" class="row hidden" aria-live="polite">
           <img id="spotify-avatar" alt="Spotify profile avatar" width="36" height="36" style="border-radius: 999px; object-fit: cover" />
           <p class="small"><strong id="spotify-display-name">Not connected</strong><br /><span class="muted" id="spotify-account-id"></span></p>

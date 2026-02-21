@@ -21,4 +21,6 @@ We start digital-first with a mobile-optimized Progressive Web App (PWA) to vali
 
 ## Future phases (to be prioritized later)
 - Expand parser adapters beyond SBB (France, Italy, road trips) once the Swiss flow is stable.
-- Explore optional enhancements (LLM storytelling, weather-informed mood adjustments, richer notifications) documented in `docs/future-ideas.md`.
+- Keep mood as its own signal: structured mood tags + free-text mood notes interpreted later by an LLM planner (documented in `docs/future-ideas.md`).
+- Re-evaluate whether we need a dedicated language preference control; defer decision until product definition validates the use case.
+- Keep region expansion as a roadmap item only; v1 stays Swiss/SBB-centric.
