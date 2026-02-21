@@ -26,6 +26,12 @@ class NotFoundError extends AppError {
   }
 }
 
+class ConflictError extends AppError {
+  constructor(message = 'Conflict', details = null) {
+    super(message, { name: 'ConflictError', statusCode: 409, code: 'CONFLICT', details });
+  }
+}
+
 function getErrorCauseDetails(error) {
   if (!error) {
     return 'Unknown error';
@@ -97,6 +103,7 @@ module.exports = {
   ValidationError,
   UnauthorizedError,
   NotFoundError,
+  ConflictError,
   getErrorCauseDetails,
   asyncHandler,
   errorHandler
