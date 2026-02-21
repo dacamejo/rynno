@@ -161,3 +161,52 @@ test('feedback dashboard validates numeric days query', async () => {
     assert.ok(payload.requestId);
   });
 });
+
+
+test('idempotency key replays duplicate feedback event creation requests', async () => {
+  await withServer(async (baseUrl) => {
+    const headers = {
+      'content-type': 'application/json',
+      'idempotency-key': 'feedback-event-1'
+    };
+
+    const body = JSON.stringify({ eventType: 'thumbs_up', userId: 'user-a', tripId: 'trip-a' });
+    const firstResponse = await fetch(`${baseUrl}/api/v1/feedback/events`, { method: 'POST', headers, body });
+    const firstPayload = await firstResponse.json();
+
+    const secondResponse = await fetch(`${baseUrl}/api/v1/feedback/events`, { method: 'POST', headers, body });
+    const secondPayload = await secondResponse.json();
+
+    assert.equal(firstResponse.status, 201);
+    assert.equal(secondResponse.status, 201);
+    assert.equal(secondResponse.headers.get('idempotent-replayed'), 'true');
+    assert.deepEqual(secondPayload, firstPayload);
+  });
+});
+
+test('idempotency key rejects conflicting payload reuse', async () => {
+  await withServer(async (baseUrl) => {
+    const headers = {
+      'content-type': 'application/json',
+      'idempotency-key': 'feedback-event-2'
+    };
+
+    const firstResponse = await fetch(`${baseUrl}/api/v1/feedback/events`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ eventType: 'thumbs_up', userId: 'user-a', tripId: 'trip-a' })
+    });
+
+    const secondResponse = await fetch(`${baseUrl}/api/v1/feedback/events`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ eventType: 'thumbs_down', userId: 'user-a', tripId: 'trip-a' })
+    });
+    const secondPayload = await secondResponse.json();
+
+    assert.equal(firstResponse.status, 201);
+    assert.equal(secondResponse.status, 409);
+    assert.equal(secondPayload.code, 'CONFLICT');
+    assert.ok(secondPayload.requestId);
+  });
+});

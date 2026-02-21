@@ -150,6 +150,12 @@ This can be introduced module-by-module without a full rewrite.
    - Added playlist domain unit tests for recommendation param shaping, deduping, and guardrail mutation behavior.
    - Expanded API contract validation coverage across trips, playlists, auth refresh, feedback events, feedback dashboard, and reminder dispatch boundaries.
 
+### Priority 2 status
+1. **Add idempotency keys for mutating endpoints sensitive to retries** — ✅ **Partially completed**.
+   - Added reusable `Idempotency-Key` middleware with replay + conflict semantics in `src/shared/http.js`.
+   - Enabled idempotent request handling for trip ingestion, reminder creation, playlist generation, and feedback event ingestion routes.
+   - Added API contract tests that verify successful replay behavior and conflict detection when the same key is reused with a different payload.
+
 ## Concrete improvement backlog (prioritized)
 
 ### Priority 0 (1-2 sprints)
