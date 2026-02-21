@@ -1,209 +1,77 @@
-const crypto = require('crypto');
-const { getErrorCauseDetails, AppError, NotFoundError } = require('../../shared/errors');
-
-const AUTH_STATE_TTL_MS = 10 * 60 * 1000;
-const DEFAULT_SPOTIFY_SCOPES = 'playlist-modify-private playlist-modify-public user-read-private user-library-read';
-const authStateStore = new Map();
+const { AppError } = require('../../shared/errors');
+const { AUTH_CONFIG } = require('./auth.config');
+const { createAuthService, buildReauthSignal } = require('./auth.service');
+const { createAuthStateTokenService } = require('./auth-state-token');
 
 function getBaseUrl(req) {
   return process.env.APP_BASE_URL || `${req.protocol}://${req.get('host')}`;
 }
 
-function buildSpotifyRedirectUri(req) {
-  return `${getBaseUrl(req)}/auth/spotify/callback`;
+function buildSpotifyRedirectUri(requestBaseUrl) {
+  return `${requestBaseUrl}/auth/spotify/callback`;
 }
 
-function resolveSafeReturnTo(req) {
-  const baseUrl = getBaseUrl(req);
-  const candidate = req.query.returnTo;
-  if (!candidate) return `${baseUrl}/`;
+function resolveSafeReturnTo({ requestBaseUrl, candidate }) {
+  if (!candidate) return `${requestBaseUrl}/`;
 
   try {
-    const parsed = new URL(candidate, baseUrl);
-    const baseOrigin = new URL(baseUrl).origin;
-    if (parsed.origin !== baseOrigin) return `${baseUrl}/`;
+    const parsed = new URL(candidate, requestBaseUrl);
+    const baseOrigin = new URL(requestBaseUrl).origin;
+    if (parsed.origin !== baseOrigin) return `${requestBaseUrl}/`;
     return `${parsed.origin}${parsed.pathname}${parsed.search}${parsed.hash}`;
   } catch {
-    return `${baseUrl}/`;
+    return `${requestBaseUrl}/`;
   }
 }
 
-function putAuthState(record) {
-  const state = crypto.randomBytes(24).toString('hex');
-  authStateStore.set(state, { ...record, createdAt: Date.now() });
-  return state;
+function resolveAuthStateSecret() {
+  return process.env.OAUTH_STATE_SECRET || process.env.SPOTIFY_CLIENT_SECRET;
 }
 
-function consumeAuthState(state) {
-  const record = authStateStore.get(state);
-  if (!record) return null;
-  authStateStore.delete(state);
-  if (Date.now() - record.createdAt > AUTH_STATE_TTL_MS) return null;
-  return record;
-}
-
-function cleanupExpiredAuthStates() {
-  const now = Date.now();
-  for (const [state, record] of authStateStore.entries()) {
-    if (now - record.createdAt > AUTH_STATE_TTL_MS) {
-      authStateStore.delete(state);
-    }
+function createAuthController(deps) {
+  const stateSecret = resolveAuthStateSecret();
+  if (!stateSecret) {
+    throw new AppError('Missing OAUTH_STATE_SECRET (or SPOTIFY_CLIENT_SECRET fallback) environment variable.', {
+      statusCode: 500,
+      code: 'CONFIG_ERROR'
+    });
   }
-}
 
-function resolveUserId(query = {}) {
-  return query.userId || query.user_id || crypto.randomUUID();
-}
+  const authService = createAuthService({
+    ...deps,
+    authConfig: AUTH_CONFIG,
+    buildRedirectUri: buildSpotifyRedirectUri,
+    resolveReturnTo: resolveSafeReturnTo,
+    stateTokenService: createAuthStateTokenService({ secret: stateSecret, ttlMs: AUTH_CONFIG.oauthStateTtlMs })
+  });
 
-function buildReauthSignal({ userId, reason }) {
-  return { required: true, userId, reason, nextStep: 'Re-authenticate via GET /auth/spotify?userId=<id>' };
-}
-
-function createAuthController({ spotifyClient, upsertUser, saveOAuthToken, getOAuthToken }) {
   return {
     spotifyAuth(req, res) {
-      cleanupExpiredAuthStates();
-      const clientId = process.env.SPOTIFY_CLIENT_ID;
-      if (!clientId) {
-        throw new AppError('Missing SPOTIFY_CLIENT_ID environment variable.', { statusCode: 500, code: 'CONFIG_ERROR' });
-      }
-
-      const userId = resolveUserId(req.query);
-      const tripId = req.query.tripId || null;
-      const scopes = req.query.scopes || process.env.SPOTIFY_SCOPES || DEFAULT_SPOTIFY_SCOPES;
-      const returnTo = resolveSafeReturnTo(req);
-      const state = putAuthState({ userId, tripId, returnTo });
-
-      const params = new URLSearchParams({
-        response_type: 'code',
-        client_id: clientId,
-        redirect_uri: buildSpotifyRedirectUri(req),
-        scope: scopes,
-        state,
-        show_dialog: req.query.showDialog === 'true' ? 'true' : 'false'
+      const redirectUrl = authService.createSpotifyAuthorizeUrl({
+        query: req.query,
+        requestBaseUrl: getBaseUrl(req)
       });
-
-      return res.redirect(`https://accounts.spotify.com/authorize?${params.toString()}`);
+      return res.redirect(redirectUrl);
     },
 
     async spotifyCallback(req, res) {
-      const { code, state, error } = req.query;
-      if (error) throw new AppError(`Spotify authorization failed: ${error}`, { statusCode: 400, code: 'SPOTIFY_AUTH_ERROR' });
-      if (!state) throw new AppError('Missing OAuth state.', { statusCode: 400, code: 'MISSING_STATE' });
-
-      const authRecord = consumeAuthState(state);
-      if (!authRecord) throw new AppError('Invalid or expired OAuth state.', { statusCode: 400, code: 'INVALID_STATE' });
-
-      try {
-        const tokenResponse = await spotifyClient.exchangeAuthorizationCode({ code, redirectUri: buildSpotifyRedirectUri(req) });
-        const profile = await spotifyClient.getUserProfile(tokenResponse.accessToken);
-
-        const user = await upsertUser({
-          userId: authRecord.userId,
-          email: profile.email || null,
-          spotifyUserId: profile.id,
-          locale: profile.country || null
-        });
-        const resolvedUserId = user?.user_id || user?.userId || authRecord.userId;
-
-        const expiresAt = new Date(Date.now() + (tokenResponse.expiresIn || 3600) * 1000).toISOString();
-        await saveOAuthToken({
-          userId: resolvedUserId,
-          provider: 'spotify',
-          accessToken: tokenResponse.accessToken,
-          refreshToken: tokenResponse.refreshToken,
-          scope: tokenResponse.scope,
-          tokenType: tokenResponse.tokenType,
-          expiresAt,
-          metadata: {
-            spotifyUserId: profile.id,
-            tripId: authRecord.tripId,
-            displayName: profile.display_name || null,
-            avatarUrl: profile.images?.[0]?.url || null,
-            email: profile.email || null
-          }
-        });
-        const callbackParams = new URLSearchParams({
-          spotifyAuth: 'connected',
-          userId: resolvedUserId,
-          spotifyUserId: profile.id,
-          expiresAt,
-          displayName: profile.display_name || '',
-          avatarUrl: profile.images?.[0]?.url || ''
-        });
-        if (authRecord.tripId) callbackParams.set('tripId', authRecord.tripId);
-
-        const returnToUrl = new URL(authRecord.returnTo || `${getBaseUrl(req)}/`);
-        returnToUrl.searchParams.set('spotifyAuth', callbackParams.get('spotifyAuth'));
-        returnToUrl.searchParams.set('userId', callbackParams.get('userId'));
-        returnToUrl.searchParams.set('spotifyUserId', callbackParams.get('spotifyUserId'));
-        returnToUrl.searchParams.set('expiresAt', callbackParams.get('expiresAt'));
-        if (callbackParams.get('displayName')) returnToUrl.searchParams.set('displayName', callbackParams.get('displayName'));
-        if (callbackParams.get('avatarUrl')) returnToUrl.searchParams.set('avatarUrl', callbackParams.get('avatarUrl'));
-        if (authRecord.tripId) returnToUrl.searchParams.set('tripId', authRecord.tripId);
-
-        return res.redirect(returnToUrl.toString());
-      } catch (callbackError) {
-        throw new AppError('Unable to finish Spotify authorization flow.', {
-          statusCode: 500,
-          code: 'SPOTIFY_CALLBACK_FAILED',
-          details: getErrorCauseDetails(callbackError)
-        });
-      }
+      const redirectUrl = await authService.completeSpotifyCallback({
+        code: req.query.code,
+        state: req.query.state,
+        error: req.query.error,
+        requestBaseUrl: getBaseUrl(req)
+      });
+      return res.redirect(redirectUrl);
     },
 
     async refreshSpotify(req, res) {
-      const userId = req.body.userId;
-      const tokenEntry = await getOAuthToken(userId, 'spotify');
-      if (!tokenEntry) throw new NotFoundError('Spotify token not found for user.');
-      if (!tokenEntry.refreshToken) {
-        throw new AppError('Missing refresh token for user.', {
-          statusCode: 400,
-          code: 'MISSING_REFRESH_TOKEN',
-          details: { reauth: buildReauthSignal({ userId, reason: 'missing_refresh_token' }) }
-        });
-      }
-
-      try {
-        const refreshed = await spotifyClient.refreshAccessToken(tokenEntry.refreshToken);
-        const expiresAt = new Date(Date.now() + (refreshed.expiresIn || 3600) * 1000).toISOString();
-
-        await saveOAuthToken({
-          userId,
-          provider: 'spotify',
-          accessToken: refreshed.accessToken,
-          refreshToken: refreshed.refreshToken || tokenEntry.refreshToken,
-          scope: refreshed.scope || tokenEntry.scope,
-          tokenType: refreshed.tokenType || tokenEntry.tokenType,
-          expiresAt,
-          metadata: tokenEntry.metadata || {}
-        });
-
-        return res.json({ status: 'refreshed', userId, expiresAt });
-      } catch (error) {
-        const details = getErrorCauseDetails(error);
-        const needsReauth = /invalid_grant/i.test(details);
-        throw new AppError('Unable to refresh Spotify token.', {
-          statusCode: 400,
-          code: 'SPOTIFY_REFRESH_FAILED',
-          details: { details, reauth: needsReauth ? buildReauthSignal({ userId, reason: 'invalid_grant' }) : null }
-        });
-      }
+      const responseDto = await authService.refreshSpotifyToken({ userId: req.body.userId });
+      return res.json(responseDto);
     },
 
     async getSpotifyTokenMetadata(req, res) {
-      const tokenEntry = await getOAuthToken(req.params.userId, 'spotify');
-      if (!tokenEntry) throw new NotFoundError('Token metadata not found.');
-
-      return res.json({
-        userId: tokenEntry.userId,
-        provider: tokenEntry.provider,
-        scope: tokenEntry.scope,
-        tokenType: tokenEntry.tokenType,
-        expiresAt: tokenEntry.expiresAt,
-        lastRefreshedAt: tokenEntry.lastRefreshedAt,
-        metadata: tokenEntry.metadata
-      });
+      const responseDto = await authService.getSpotifyTokenMetadata({ userId: req.params.userId });
+      return res.json(responseDto);
     }
   };
 }

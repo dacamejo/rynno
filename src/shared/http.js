@@ -1,7 +1,8 @@
 const { UnauthorizedError, ValidationError, ConflictError } = require('./errors');
+const { HTTP_CONFIG } = require('./http.config');
 
 class InMemoryIdempotencyStore {
-  constructor({ ttlMs = 24 * 60 * 60 * 1000 } = {}) {
+  constructor({ ttlMs = HTTP_CONFIG.idempotencyTtlMs } = {}) {
     this.ttlMs = ttlMs;
     this.entries = new Map();
   }
@@ -55,8 +56,8 @@ function createIdempotencyMiddleware({ store = new InMemoryIdempotencyStore(), m
       return next();
     }
 
-    if (idempotencyKey.length > 128) {
-      return next(new ValidationError('idempotency-key header must be 128 characters or less.'));
+    if (idempotencyKey.length > HTTP_CONFIG.maxIdempotencyKeyLength) {
+      return next(new ValidationError(`idempotency-key header must be ${HTTP_CONFIG.maxIdempotencyKeyLength} characters or less.`));
     }
 
     const scopeKey = `${req.method.toUpperCase()}:${req.path}:${idempotencyKey}`;
