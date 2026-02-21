@@ -1,15 +1,22 @@
 # UI Execution Plan: Make Playlist Generation Real + Premium UX
 
+## Progress update (2026-02-21)
+
+### ✅ Completed in latest implementation
+- **Step 1 complete:** Trip review CTA now calls `POST /api/v1/playlists/generate` using mapped trip + preference + Spotify context payloads. `trips/:tripId/refresh` is preserved as a separate “Refresh trip timing” action.
+- **Step 2 complete:** UI generation state machine is now implemented with explicit states (`idle`, `submitting`, `success`, `partial_success`, `error_auth`, `error_validation`, `error_network`), duplicate-submit prevention, user recovery prompts, and local per-trip cache restore for successful playlists.
+
+### 🔄 Remaining work
+- **Step 3+ still in progress:** Expand storytelling presentation depth (cover image, richer metadata, output CTAs), preference polish, and observability/release-gate work.
+
 ## Current evaluation
 
-The backend playlist generation pipeline is available (`POST /api/v1/playlists/generate`), but the current UI still uses a prototype playlist panel with mock tracks and explicit copy saying live generation is not wired. The “Regenerate playlist” action currently refreshes trip status rather than invoking playlist generation.
+Phase A work is now largely complete: the UI is wired to live playlist generation and includes explicit generation state handling with typed failure states and retry guidance.
 
-### Key gaps
-- **No true UI→playlist generation API wiring** (refresh endpoint is called instead).
-- **No generated playlist state model** (idle/loading/success/error/retry).
-- **No real result rendering** (cover art, tracklist, Spotify deep-link, guardrail context).
-- **No resilient UX for auth/token and request retries**.
-- **No UX instrumentation loop tied to generation outcomes in the UI layer**.
+### Remaining key gaps
+- **Storytelling depth is still limited** (cover art, richer metadata blocks, deep-link CTA set).
+- **Preference confidence UX needs polish** (inline summaries, stronger pre-submit hints, richer micro-interactions).
+- **No UI instrumentation loop tied to generation outcomes yet**.
 
 ## Top 5 next steps (priority order)
 
@@ -102,9 +109,9 @@ The backend playlist generation pipeline is available (`POST /api/v1/playlists/g
 
 ## Acceptance checklist for “UI ready for real playlist generation”
 
-- [ ] Generate button uses `/api/v1/playlists/generate` with valid payload and token context.
-- [ ] Playlist panel renders real API response, not mock rows.
-- [ ] Auth, validation, and network failure states are handled with explicit recovery actions.
+- [x] Generate button uses `/api/v1/playlists/generate` with valid payload and token context.
+- [x] Playlist panel renders real API response, not mock rows.
+- [x] Auth, validation, and network failure states are handled with explicit recovery actions.
 - [ ] Open-in-Spotify flow works on mobile viewport.
 - [ ] Frontend telemetry captures generation funnel outcomes.
 - [ ] E2E tests pass for happy path + one major failure path.

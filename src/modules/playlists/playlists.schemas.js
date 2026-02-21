@@ -7,8 +7,8 @@ function validateGeneratePlaylistBody(body) {
     return 'Spotify accessToken or refreshToken is required to generate playlists.';
   }
 
-  if (!body.spotify.accessToken && !body.spotify.refreshToken) {
-    return 'Spotify accessToken or refreshToken is required to generate playlists.';
+  if (!body.spotify.accessToken && !body.spotify.refreshToken && !body.spotify.userId) {
+    return 'Spotify accessToken, refreshToken, or userId is required to generate playlists.';
   }
 
   if (body.preferences != null && (typeof body.preferences !== 'object' || Array.isArray(body.preferences))) {

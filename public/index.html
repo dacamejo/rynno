@@ -179,18 +179,18 @@
         </div>
 
         <div class="row">
-          <button class="button button-primary" id="regenerate-playlist">Regenerate playlist</button>
+          <button class="button button-primary" id="regenerate-playlist">Generate playlist</button>
+          <button class="button button-ghost" id="refresh-trip">Refresh trip timing</button>
           <button class="button button-ghost" id="schedule-reminder">Schedule reminder</button>
         </div>
         <p class="small muted" id="trip-action-status">Awaiting action.</p>
       </section>
 
       <section class="card stack hidden" id="playlist-panel">
-        <h2>Playlist preview (prototype)</h2>
-        <p class="muted">This card is mock data for UI testing only. Live Spotify playlist generation is not wired to this panel yet.</p>
-        <div class="track"><strong>Golden Hour Departure</strong><br /><span class="small">Energy 0.48 · Valence 0.62</span></div>
-        <div class="track"><strong>Platform Echoes</strong><br /><span class="small">Energy 0.55 · Valence 0.58</span></div>
-        <div class="track"><strong>Summit Afterglow</strong><br /><span class="small">Energy 0.43 · Valence 0.71</span></div>
+        <h2 id="playlist-title">Playlist output</h2>
+        <p class="muted" id="playlist-message">Ready to generate when you are.</p>
+        <p class="small muted" id="playlist-meta">No generated playlist yet.</p>
+        <div class="stack" id="playlist-tracks"></div>
       </section>
 
       <section class="card stack" id="settings-history">

@@ -13,11 +13,17 @@ const companionChipsContainer = document.getElementById('companion-chips');
 const moodInput = document.getElementById('mood-input');
 const tripActionStatus = document.getElementById('trip-action-status');
 const regeneratePlaylistButton = document.getElementById('regenerate-playlist');
+const refreshTripButton = document.getElementById('refresh-trip');
 const scheduleReminderButton = document.getElementById('schedule-reminder');
 const openOauthButton = document.getElementById('open-oauth');
 const spotifyUserIdInput = document.getElementById('spotify-user-id');
+const playlistTitle = document.getElementById('playlist-title');
+const playlistMessage = document.getElementById('playlist-message');
+const playlistMeta = document.getElementById('playlist-meta');
+const playlistTracks = document.getElementById('playlist-tracks');
 
 const SPOTIFY_AUTH_STORAGE_KEY = 'rynno.spotify.auth';
+const TRIP_PLAYLIST_CACHE_KEY = 'rynno.trip.playlist.cache.v1';
 const COMPANIONS = ['Solo', 'Couple', 'Family', 'Kids', 'Friends'];
 const selectedCompanions = new Set(['Solo']);
 const tripTemplate = {
@@ -37,7 +43,20 @@ const tripTemplate = {
   }
 };
 
+const GENERATION_STATE = {
+  idle: 'idle',
+  submitting: 'submitting',
+  success: 'success',
+  partial_success: 'partial_success',
+  error_auth: 'error_auth',
+  error_validation: 'error_validation',
+  error_network: 'error_network'
+};
+
 let activeTripId = null;
+let activeTripCanonical = null;
+let generationState = GENERATION_STATE.idle;
+let latestPlaylist = null;
 
 function readStoredSpotifyAuth() {
   try {
@@ -51,6 +70,29 @@ function readStoredSpotifyAuth() {
 
 function saveStoredSpotifyAuth(auth) {
   localStorage.setItem(SPOTIFY_AUTH_STORAGE_KEY, JSON.stringify(auth));
+}
+
+function readPlaylistCache() {
+  try {
+    return JSON.parse(localStorage.getItem(TRIP_PLAYLIST_CACHE_KEY) || '{}');
+  } catch {
+    return {};
+  }
+}
+
+function savePlaylistForTrip(tripId, playlist) {
+  const cache = readPlaylistCache();
+  cache[tripId] = {
+    cachedAt: new Date().toISOString(),
+    playlist
+  };
+  localStorage.setItem(TRIP_PLAYLIST_CACHE_KEY, JSON.stringify(cache));
+}
+
+function readPlaylistForTrip(tripId) {
+  if (!tripId) return null;
+  const cache = readPlaylistCache();
+  return cache[tripId]?.playlist || null;
 }
 
 function renderSpotifyAuth(auth) {
@@ -122,14 +164,128 @@ function renderCompanions() {
 }
 
 async function requestJson(url, options = {}) {
-  const response = await fetch(url, options);
+  let response;
+  try {
+    response = await fetch(url, options);
+  } catch (networkError) {
+    const error = new Error('Network request failed. Check your connection and try again.');
+    error.category = GENERATION_STATE.error_network;
+    throw error;
+  }
+
   const body = await response.json().catch(() => ({ error: 'Non-JSON response' }));
   if (!response.ok) {
     const message = body.error || body.details || body.errors?.join(', ') || 'Request failed';
-    throw new Error(message);
+    const error = new Error(message);
+    error.status = response.status;
+    error.code = body.code;
+    if (response.status === 401 || body.code === 'SPOTIFY_AUTH_REQUIRED') {
+      error.category = GENERATION_STATE.error_auth;
+    } else if (response.status === 400 || body.code === 'VALIDATION_ERROR') {
+      error.category = GENERATION_STATE.error_validation;
+    } else {
+      error.category = GENERATION_STATE.error_network;
+    }
+    throw error;
   }
 
   return body;
+}
+
+function normalizeTags(companions) {
+  return companions.map((entry) => entry.toLowerCase().replace(/\s+/g, '-'));
+}
+
+function buildMoodHints(rawMood = '') {
+  const lower = rawMood.toLowerCase();
+  return {
+    calm: /calm|cozy|chill|soft/.test(lower),
+    energetic: /energy|hype|upbeat|fast/.test(lower),
+    cinematic: /cinematic|epic|film/.test(lower),
+    adventurous: /adventurous|explore|bold/.test(lower),
+    reflective: /reflect|quiet|focus|gentle/.test(lower)
+  };
+}
+
+function buildPlaylistRequestPayload() {
+  const auth = readStoredSpotifyAuth();
+  const companions = Array.from(selectedCompanions);
+  const mood = moodInput.value.trim();
+
+  const canonicalTrip = {
+    ...(activeTripCanonical || {}),
+    tripId: activeTripId,
+    tags: normalizeTags(companions),
+    metadata: {
+      ...(activeTripCanonical?.metadata || {}),
+      userId: auth?.userId || null,
+      selectedCompanions: companions,
+      moodInput: mood || null
+    }
+  };
+
+  return {
+    trip: canonicalTrip,
+    preferences: {
+      tags: normalizeTags(companions),
+      moodHints: buildMoodHints(mood),
+      languagePreference: activeTripCanonical?.preferredLanguages?.[0] || null,
+      moodText: mood || null
+    },
+    spotify: {
+      userId: auth?.userId || null,
+      spotifyUserId: auth?.spotifyUserId || null
+    },
+    isRegeneration: Boolean(latestPlaylist?.playlistId),
+    regeneratedFromPlaylistId: latestPlaylist?.playlistId || null
+  };
+}
+
+function renderPlaylistOutput(playlist) {
+  if (!playlist) {
+    playlistTitle.textContent = 'Playlist output';
+    playlistMeta.textContent = 'No generated playlist yet.';
+    playlistTracks.innerHTML = '';
+    return;
+  }
+
+  playlistTitle.textContent = playlist.playlistName || 'Generated playlist';
+  playlistMeta.textContent = playlist.playlistUrl || 'Playlist created. Open in Spotify from your account.';
+  playlistTracks.innerHTML = '';
+
+  (playlist.tracks || []).slice(0, 5).forEach((track) => {
+    const row = document.createElement('div');
+    row.className = 'track';
+    row.innerHTML = `<strong>${track.position}. ${track.name}</strong><br /><span class="small">${(track.artists || []).join(', ') || 'Unknown artist'}</span>`;
+    playlistTracks.appendChild(row);
+  });
+}
+
+function renderGenerationState() {
+  const buttonLabels = {
+    [GENERATION_STATE.idle]: latestPlaylist ? 'Regenerate playlist' : 'Generate playlist',
+    [GENERATION_STATE.submitting]: 'Generating…',
+    [GENERATION_STATE.success]: 'Regenerate playlist',
+    [GENERATION_STATE.partial_success]: 'Regenerate playlist',
+    [GENERATION_STATE.error_auth]: 'Retry generation',
+    [GENERATION_STATE.error_validation]: 'Retry generation',
+    [GENERATION_STATE.error_network]: 'Retry generation'
+  };
+
+  regeneratePlaylistButton.textContent = buttonLabels[generationState] || 'Generate playlist';
+  regeneratePlaylistButton.disabled = generationState === GENERATION_STATE.submitting;
+
+  const helperCopy = {
+    [GENERATION_STATE.idle]: 'Ready to generate when you are.',
+    [GENERATION_STATE.submitting]: 'Creating your Spotify playlist…',
+    [GENERATION_STATE.success]: 'Playlist generated successfully.',
+    [GENERATION_STATE.partial_success]: 'Playlist generated with guardrail recovery.',
+    [GENERATION_STATE.error_auth]: 'Reconnect Spotify to continue.',
+    [GENERATION_STATE.error_validation]: 'Adjust trip preferences and try again.',
+    [GENERATION_STATE.error_network]: 'Network/server error. Retry generation.'
+  };
+
+  playlistMessage.textContent = helperCopy[generationState] || '';
 }
 
 async function setupServiceWorker() {
@@ -145,6 +301,27 @@ async function setupServiceWorker() {
   } catch (error) {
     swStatus.textContent = `Service worker failed: ${error.message}`;
   }
+}
+
+function setTripSummary(statusResult) {
+  activeTripCanonical = statusResult.canonical || null;
+  const route = statusResult.canonical?.route || {};
+  const timing = statusResult.canonical?.timing || {};
+  tripSummary.textContent = `${route.origin || 'Origin'} → ${route.destination || 'Destination'} · Depart ${
+    timing.departureTime || 'TBD'
+  }`;
+}
+
+function restoreCachedPlaylist() {
+  latestPlaylist = readPlaylistForTrip(activeTripId);
+  if (latestPlaylist) {
+    generationState = GENERATION_STATE.success;
+    renderPlaylistOutput(latestPlaylist);
+  } else {
+    generationState = GENERATION_STATE.idle;
+    renderPlaylistOutput(null);
+  }
+  renderGenerationState();
 }
 
 async function simulateShareIngest() {
@@ -163,15 +340,12 @@ async function simulateShareIngest() {
     activeTripId = ingestResult.tripId;
 
     const statusResult = await requestJson(`/api/v1/trips/${encodeURIComponent(activeTripId)}/status`);
-    const route = statusResult.canonical?.route || {};
-    const timing = statusResult.canonical?.timing || {};
-    tripSummary.textContent = `${route.origin || 'Origin'} → ${route.destination || 'Destination'} · Depart ${
-      timing.departureTime || 'TBD'
-    }`;
+    setTripSummary(statusResult);
 
     tripReviewCard.classList.remove('hidden');
     playlistPanel.classList.remove('hidden');
-    tripActionStatus.textContent = `Trip ready (${activeTripId}). Adjust companions/mood and regenerate.`;
+    restoreCachedPlaylist();
+    tripActionStatus.textContent = `Trip ready (${activeTripId}). Configure preferences and generate.`;
   } catch (error) {
     tripActionStatus.textContent = error.message;
   } finally {
@@ -179,7 +353,7 @@ async function simulateShareIngest() {
   }
 }
 
-async function regeneratePlaylist() {
+async function refreshTripTiming() {
   if (!activeTripId) {
     tripActionStatus.textContent = 'Load a shared trip first.';
     return;
@@ -187,10 +361,58 @@ async function regeneratePlaylist() {
 
   try {
     const refresh = await requestJson(`/api/v1/trips/${encodeURIComponent(activeTripId)}/refresh`, { method: 'POST' });
-    const mood = moodInput.value.trim() || 'none';
-    tripActionStatus.textContent = `Inputs refreshed (${refresh.status}) with companions: ${Array.from(selectedCompanions).join(', ')} · mood: ${mood}. (Preview card remains mocked in this prototype.)`;
+    setTripSummary(refresh);
+    tripActionStatus.textContent = `Trip timing refreshed (${refresh.status}).`;
   } catch (error) {
     tripActionStatus.textContent = error.message;
+  }
+}
+
+async function regeneratePlaylist() {
+  if (!activeTripId || !activeTripCanonical) {
+    tripActionStatus.textContent = 'Load a shared trip first.';
+    return;
+  }
+
+  if (generationState === GENERATION_STATE.submitting) {
+    return;
+  }
+
+  generationState = GENERATION_STATE.submitting;
+  renderGenerationState();
+  tripActionStatus.textContent = 'Submitting playlist generation...';
+
+  const idempotencyKey = `playlist-generate:${activeTripId}:${crypto.randomUUID()}`;
+
+  try {
+    const payload = buildPlaylistRequestPayload();
+    const playlist = await requestJson('/api/v1/playlists/generate', {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'idempotency-key': idempotencyKey
+      },
+      body: JSON.stringify(payload)
+    });
+
+    latestPlaylist = playlist;
+    savePlaylistForTrip(activeTripId, playlist);
+    const hadGuardrailRecovery = (playlist.guardrailAttempts || []).some((attempt) => !attempt.pass);
+    generationState = hadGuardrailRecovery ? GENERATION_STATE.partial_success : GENERATION_STATE.success;
+    renderPlaylistOutput(playlist);
+    renderGenerationState();
+    tripActionStatus.textContent = `Playlist ready: ${playlist.playlistName || playlist.playlistId}.`;
+  } catch (error) {
+    generationState = error.category || GENERATION_STATE.error_network;
+    renderGenerationState();
+
+    if (generationState === GENERATION_STATE.error_auth) {
+      tripActionStatus.textContent = 'Spotify session missing or expired. Reconnect Spotify, then retry.';
+    } else if (generationState === GENERATION_STATE.error_validation) {
+      tripActionStatus.textContent = `Validation issue: ${error.message}`;
+    } else {
+      tripActionStatus.textContent = `Generation failed: ${error.message}`;
+    }
   }
 }
 
@@ -230,10 +452,12 @@ function openOauth() {
 
 simulateShareButton.addEventListener('click', simulateShareIngest);
 regeneratePlaylistButton.addEventListener('click', regeneratePlaylist);
+refreshTripButton.addEventListener('click', refreshTripTiming);
 scheduleReminderButton.addEventListener('click', scheduleReminder);
 openOauthButton.addEventListener('click', openOauth);
 
 renderCompanions();
+renderGenerationState();
 setupServiceWorker();
 consumeSpotifyAuthCallback();
 renderSpotifyAuth(readStoredSpotifyAuth());

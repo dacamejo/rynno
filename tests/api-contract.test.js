@@ -110,6 +110,22 @@ test('playlist generation validates missing spotify credentials at boundary', as
   });
 });
 
+
+test('playlist generation with spotify userId but no saved token returns auth-required envelope', async () => {
+  await withServer(async (baseUrl) => {
+    const response = await fetch(`${baseUrl}/api/v1/playlists/generate`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ trip: { tripId: 't1' }, spotify: { userId: 'user-without-token' } })
+    });
+    const payload = await response.json();
+
+    assert.equal(response.status, 401);
+    assert.equal(payload.code, 'SPOTIFY_AUTH_REQUIRED');
+    assert.ok(payload.requestId);
+  });
+});
+
 test('trip reminder creation validates numeric leadMinutes', async () => {
   await withServer(async (baseUrl) => {
     const response = await fetch(`${baseUrl}/api/v1/trips/trip-123/reminders`, {

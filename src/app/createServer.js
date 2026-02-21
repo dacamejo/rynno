@@ -56,7 +56,11 @@ function createServer() {
     getOAuthToken: dbModule.getOAuthToken
   });
 
-  const playlistsController = createPlaylistsController({ generatePlaylist, safeRecordFeedbackEvent });
+  const playlistsController = createPlaylistsController({
+    generatePlaylist,
+    safeRecordFeedbackEvent,
+    getOAuthToken: dbModule.getOAuthToken
+  });
   const feedbackController = createFeedbackController({
     recordFeedbackEvent: dbModule.recordFeedbackEvent,
     listFeedbackEvents: dbModule.listFeedbackEvents,
