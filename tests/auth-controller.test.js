@@ -26,7 +26,9 @@ function createRes() {
 test('spotify auth callback redirects back to app instead of returning raw JSON payload', async () => {
 
   const previousClientId = process.env.SPOTIFY_CLIENT_ID;
+  const previousOauthSecret = process.env.OAUTH_STATE_SECRET;
   process.env.SPOTIFY_CLIENT_ID = 'client-id';
+  process.env.OAUTH_STATE_SECRET = 'test-oauth-state-secret';
   const spotifyClient = {
     async exchangeAuthorizationCode() {
       return {
@@ -83,12 +85,16 @@ test('spotify auth callback redirects back to app instead of returning raw JSON 
   } finally {
     if (previousClientId == null) delete process.env.SPOTIFY_CLIENT_ID;
     else process.env.SPOTIFY_CLIENT_ID = previousClientId;
+    if (previousOauthSecret == null) delete process.env.OAUTH_STATE_SECRET;
+    else process.env.OAUTH_STATE_SECRET = previousOauthSecret;
   }
 });
 
 test('spotify callback persists tokens against existing user id when spotify account already exists', async () => {
   const previousClientId = process.env.SPOTIFY_CLIENT_ID;
+  const previousOauthSecret = process.env.OAUTH_STATE_SECRET;
   process.env.SPOTIFY_CLIENT_ID = 'client-id';
+  process.env.OAUTH_STATE_SECRET = 'test-oauth-state-secret';
 
   const spotifyClient = {
     async exchangeAuthorizationCode() {
@@ -127,5 +133,7 @@ test('spotify callback persists tokens against existing user id when spotify acc
   } finally {
     if (previousClientId == null) delete process.env.SPOTIFY_CLIENT_ID;
     else process.env.SPOTIFY_CLIENT_ID = previousClientId;
+    if (previousOauthSecret == null) delete process.env.OAUTH_STATE_SECRET;
+    else process.env.OAUTH_STATE_SECRET = previousOauthSecret;
   }
 });

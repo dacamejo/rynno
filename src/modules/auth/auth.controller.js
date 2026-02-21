@@ -1,3 +1,4 @@
+const { AppError } = require('../../shared/errors');
 const { AUTH_CONFIG } = require('./auth.config');
 const { createAuthService, buildReauthSignal } = require('./auth.service');
 const { createAuthStateTokenService } = require('./auth-state-token');
@@ -24,11 +25,17 @@ function resolveSafeReturnTo({ requestBaseUrl, candidate }) {
 }
 
 function resolveAuthStateSecret() {
-  return process.env.OAUTH_STATE_SECRET || process.env.SPOTIFY_CLIENT_SECRET || process.env.INTERNAL_API_KEY || 'local-dev-oauth-state-secret';
+  return process.env.OAUTH_STATE_SECRET || process.env.SPOTIFY_CLIENT_SECRET;
 }
 
 function createAuthController(deps) {
   const stateSecret = resolveAuthStateSecret();
+  if (!stateSecret) {
+    throw new AppError('Missing OAUTH_STATE_SECRET (or SPOTIFY_CLIENT_SECRET fallback) environment variable.', {
+      statusCode: 500,
+      code: 'CONFIG_ERROR'
+    });
+  }
 
   const authService = createAuthService({
     ...deps,

@@ -156,6 +156,30 @@ This can be introduced module-by-module without a full rewrite.
    - Enabled idempotent request handling for trip ingestion, reminder creation, playlist generation, and feedback event ingestion routes.
    - Added API contract tests that verify successful replay behavior and conflict detection when the same key is reused with a different payload.
 
+
+### Coding-level improvements status (2026-02-21)
+1. **Avoid mutable shared in-memory auth state for scale-out paths** — ✅ **Completed**.
+   - OAuth state now uses a signed stateless token (`auth-state-token`) with TTL validation instead of process-local `Map` state.
+   - **Pending follow-up:** move state secret validation into a centralized startup config module so secret requirements fail-fast during app bootstrap.
+2. **Standardize DTOs between controllers and services** — ✅ **Partially completed**.
+   - Auth module now maps request/response through `auth.service` use-case DTOs.
+   - **Pending follow-up:** apply the same controller↔service DTO pattern to Trips, Playlists, Feedback, and Meta modules.
+3. **Extract repeated auth checks into middleware** — ✅ **Completed**.
+   - Internal API key verification is centralized in `requireInternalApiKey()` and shared across routes.
+4. **Convert business constants to module-level config objects** — ✅ **Partially completed**.
+   - Added `AUTH_CONFIG` and `HTTP_CONFIG` with single ownership for OAuth/idempotency defaults.
+   - **Pending follow-up:** consolidate reminder and playlist tuning constants into dedicated module config objects.
+5. **Add dependency injection entrypoints for services** — ✅ **Partially completed**.
+   - Auth controller now composes injected dependencies through `createAuthService(...)`.
+   - **Pending follow-up:** introduce service constructors and DI composition for trips/playlists/feedback controllers in `createServer`.
+
+### Pending items snapshot
+- [ ] Centralized startup config validation for critical env vars (including OAuth state signing secret).
+- [ ] DTO/service extraction for non-auth modules.
+- [ ] Broader constants/config centralization for reminder scheduler and playlist domain tuning values.
+- [ ] Full service-level DI entrypoints across all modules.
+- [ ] Priority 2 platform items still open: queue workers, domain events, SLO dashboards.
+
 ## Concrete improvement backlog (prioritized)
 
 ### Priority 0 (1-2 sprints)

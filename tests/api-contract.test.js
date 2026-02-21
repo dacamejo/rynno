@@ -4,6 +4,9 @@ const { createServer } = require('../src/app/createServer');
 const db = require('../src/db');
 
 async function withServer(run) {
+  const previousOauthSecret = process.env.OAUTH_STATE_SECRET;
+  process.env.OAUTH_STATE_SECRET = process.env.OAUTH_STATE_SECRET || 'test-oauth-state-secret';
+
   await db.initDb({ storageProvider: new db.__internals.MemoryStorageProvider() });
   const app = createServer();
   const server = await new Promise((resolve) => {
@@ -17,6 +20,11 @@ async function withServer(run) {
     await run(baseUrl);
   } finally {
     await new Promise((resolve, reject) => server.close((err) => (err ? reject(err) : resolve())));
+    if (previousOauthSecret == null) {
+      delete process.env.OAUTH_STATE_SECRET;
+    } else {
+      process.env.OAUTH_STATE_SECRET = previousOauthSecret;
+    }
   }
 }
 
