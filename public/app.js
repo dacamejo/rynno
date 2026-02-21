@@ -32,6 +32,7 @@ const copyPlaylistLink = document.getElementById('copy-playlist-link');
 const emailPlaylistLink = document.getElementById('email-playlist-link');
 const playlistCtaStatus = document.getElementById('playlist-cta-status');
 const playlistTracks = document.getElementById('playlist-tracks');
+const playlistContract = window.PlaylistContract;
 
 const SPOTIFY_AUTH_STORAGE_KEY = 'rynno.spotify.auth';
 const TRIP_PLAYLIST_CACHE_KEY = 'rynno.trip.playlist.cache.v1';
@@ -228,58 +229,37 @@ async function requestJson(url, options = {}) {
   return body;
 }
 
-function normalizeTags(companions) {
-  return companions.map((entry) => entry.toLowerCase().replace(/\s+/g, '-'));
-}
-
-function buildMoodHints(rawMood = '') {
-  const lower = rawMood.toLowerCase();
-  return {
-    calm: /calm|cozy|chill|soft/.test(lower),
-    energetic: /energy|hype|upbeat|fast/.test(lower),
-    cinematic: /cinematic|epic|film/.test(lower),
-    adventurous: /adventurous|explore|bold/.test(lower),
-    reflective: /reflect|quiet|focus|gentle/.test(lower)
-  };
-}
-
 function buildPlaylistRequestPayload() {
+  return playlistContract.buildPlaylistRequestPayload({
+    activeTripCanonical,
+    activeTripId,
+    selectedCompanions: Array.from(selectedCompanions),
+    mood: moodInput.value.trim(),
+    language: languageSelect.value || 'english',
+    region: regionSelect.value || 'alps',
+    auth: readStoredSpotifyAuth(),
+    latestPlaylist
+  });
+}
+
+async function emitTelemetryEvent(eventType, { outcome = null, context = {} } = {}) {
   const auth = readStoredSpotifyAuth();
-  const companions = Array.from(selectedCompanions);
-  const mood = moodInput.value.trim();
-  const language = languageSelect.value || 'english';
-  const region = regionSelect.value || 'alps';
-  const preferenceTags = normalizeTags([...companions, region]);
-
-  const canonicalTrip = {
-    ...(activeTripCanonical || {}),
-    tripId: activeTripId,
-    tags: preferenceTags,
-    preferredLanguages: [language],
-    metadata: {
-      ...(activeTripCanonical?.metadata || {}),
-      userId: auth?.userId || null,
-      selectedCompanions: companions,
-      moodInput: mood || null,
-      regionPreference: region
-    }
-  };
-
-  return {
-    trip: canonicalTrip,
-    preferences: {
-      tags: preferenceTags,
-      moodHints: buildMoodHints(mood),
-      languagePreference: language,
-      moodText: mood || null
-    },
-    spotify: {
-      userId: auth?.userId || null,
-      spotifyUserId: auth?.spotifyUserId || null
-    },
-    isRegeneration: Boolean(latestPlaylist?.playlistId),
-    regeneratedFromPlaylistId: latestPlaylist?.playlistId || null
-  };
+  try {
+    await fetch('/api/v1/feedback/events', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        eventType,
+        userId: auth?.userId || null,
+        tripId: activeTripId,
+        playlistId: latestPlaylist?.playlistId || null,
+        outcome,
+        context
+      })
+    });
+  } catch {
+    // Telemetry should never block UX interactions.
+  }
 }
 
 function renderPlaylistCtas(playlist) {
@@ -324,6 +304,8 @@ function renderQualityMeta(playlist) {
 }
 
 function renderPlaylistOutput(playlist) {
+  const safePlaylist = playlistContract.normalizePlaylistForRender(playlist);
+
   if (!playlist) {
     playlistTitle.textContent = 'Playlist output';
     playlistMeta.textContent = 'No generated playlist yet.';
@@ -335,23 +317,23 @@ function renderPlaylistOutput(playlist) {
     return;
   }
 
-  playlistTitle.textContent = playlist.playlistName || 'Generated playlist';
-  playlistMeta.textContent = playlist.playlistUrl || 'Playlist created. Open in Spotify from your account.';
+  playlistTitle.textContent = safePlaylist.playlistName || 'Generated playlist';
+  playlistMeta.textContent = safePlaylist.playlistUrl || 'Playlist created. Open in Spotify from your account.';
   playlistStory.textContent =
-    playlist.moodProfile?.playlistDescription ||
+    safePlaylist.moodProfile?.playlistDescription ||
     'Storyline unavailable. We still generated a route-aware playlist using your trip context.';
-  const coverUrl = playlist.images?.[0]?.url || playlist.coverImageUrl || null;
+  const coverUrl = safePlaylist.images?.[0]?.url || safePlaylist.coverImageUrl || null;
   if (coverUrl) {
     playlistCover.src = coverUrl;
     playlistCover.classList.remove('hidden');
   } else {
     playlistCover.classList.add('hidden');
   }
-  renderPlaylistCtas(playlist);
-  renderQualityMeta(playlist);
+  renderPlaylistCtas(safePlaylist);
+  renderQualityMeta(safePlaylist);
   playlistTracks.innerHTML = '';
 
-  (playlist.tracks || []).slice(0, 8).forEach((track) => {
+  (safePlaylist.tracks || []).slice(0, 8).forEach((track) => {
     const row = document.createElement('div');
     row.className = 'track';
     const tags = [
@@ -362,7 +344,7 @@ function renderPlaylistOutput(playlist) {
     playlistTracks.appendChild(row);
   });
 
-  if (!(playlist.tracks || []).length) {
+  if (!(safePlaylist.tracks || []).length) {
     const emptyState = document.createElement('div');
     emptyState.className = 'track';
     emptyState.textContent = 'No tracks were returned. Try adjusting preferences and regenerating.';
@@ -488,12 +470,21 @@ async function regeneratePlaylist() {
     return;
   }
 
+  const wasRetry = generationState.startsWith('error_');
+  emitTelemetryEvent(wasRetry ? 'retry_generate' : 'click_generate', {
+    context: { generationState }
+  });
+
   const auth = readStoredSpotifyAuth();
   if (!auth?.userId || !auth?.spotifyUserId) {
     generationState = GENERATION_STATE.error_auth;
     renderGenerationState();
     renderPreferenceSummary();
     tripActionStatus.textContent = 'Spotify is not connected. Connect Spotify and retry generation.';
+    emitTelemetryEvent('generate_failure', {
+      outcome: GENERATION_STATE.error_auth,
+      context: { reason: 'spotify_not_connected' }
+    });
     return;
   }
 
@@ -522,6 +513,10 @@ async function regeneratePlaylist() {
     renderPlaylistOutput(playlist);
     renderGenerationState();
     tripActionStatus.textContent = `Playlist ready: ${playlist.playlistName || playlist.playlistId}.`;
+    emitTelemetryEvent('generate_success', {
+      outcome: generationState,
+      context: { hadGuardrailRecovery }
+    });
   } catch (error) {
     generationState = error.category || GENERATION_STATE.error_network;
     renderGenerationState();
@@ -533,6 +528,11 @@ async function regeneratePlaylist() {
     } else {
       tripActionStatus.textContent = `Generation failed: ${error.message}`;
     }
+
+    emitTelemetryEvent('generate_failure', {
+      outcome: generationState,
+      context: { message: error.message }
+    });
   }
 }
 
@@ -587,6 +587,12 @@ refreshTripButton.addEventListener('click', refreshTripTiming);
 scheduleReminderButton.addEventListener('click', scheduleReminder);
 openOauthButton.addEventListener('click', openOauth);
 copyPlaylistLink.addEventListener('click', copyPlaylistUrl);
+openSpotifyLink.addEventListener('click', () => {
+  emitTelemetryEvent('open_spotify_click', {
+    outcome: 'clicked',
+    context: { hasPlaylistUrl: Boolean(latestPlaylist?.playlistUrl) }
+  });
+});
 languageSelect.addEventListener('change', renderPreferenceSummary);
 regionSelect.addEventListener('change', renderPreferenceSummary);
 moodInput.addEventListener('input', renderPreferenceSummary);

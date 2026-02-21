@@ -10,7 +10,12 @@ const SUPPORTED_FEEDBACK_EVENT_TYPES = new Set([
   'guardrail_failure',
   'track_skipped',
   'reminder_sent',
-  'reminder_failed'
+  'reminder_failed',
+  'click_generate',
+  'generate_success',
+  'generate_failure',
+  'open_spotify_click',
+  'retry_generate'
 ]);
 
 function createFeedbackController({ recordFeedbackEvent, listFeedbackEvents, getFeedbackDashboard }) {
