@@ -139,6 +139,64 @@
         padding: 10px;
       }
 
+      .playlist-cover {
+        width: 100%;
+        max-height: 180px;
+        object-fit: cover;
+        border-radius: 14px;
+        background: #dfe7ef;
+      }
+
+      .meta-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 8px;
+      }
+
+      .meta-item {
+        background: #eff3f9;
+        border-radius: 12px;
+        padding: 8px;
+      }
+
+      .quality-tag {
+        display: inline-flex;
+        border-radius: 999px;
+        padding: 2px 8px;
+        margin-right: 4px;
+        background: #d7e7ff;
+        color: #153054;
+        font-size: 0.72rem;
+        font-weight: 600;
+      }
+
+      .quality-tag.warn {
+        background: #fce8d2;
+        color: #643b06;
+      }
+
+      .quality-tag.good {
+        background: #d9f3e1;
+        color: #0f4b28;
+      }
+
+      .live-region {
+        min-height: 18px;
+      }
+
+      .button[aria-busy='true'] {
+        position: relative;
+        overflow: hidden;
+      }
+
+      .button[aria-busy='true']::after {
+        content: '';
+        position: absolute;
+        inset: 0;
+        background: linear-gradient(120deg, transparent 25%, rgba(255, 255, 255, 0.48) 50%, transparent 75%);
+        animation: shimmer 1s linear infinite;
+      }
+
       .footer-nav { display: flex; gap: 10px; }
       .footer-nav button { flex: 1; }
 
@@ -167,15 +225,32 @@
       <section class="card stack hidden" id="trip-review">
         <h2>Trip review</h2>
         <p class="muted" id="trip-summary">No trip loaded yet.</p>
-        <div>
+        <div class="stack">
           <h3>Companions</h3>
           <div class="row" id="companion-chips"></div>
+          <label for="language-select"><strong>Language preference</strong></label>
+          <select id="language-select" class="toggle">
+            <option value="english">English</option>
+            <option value="swiss german">Swiss German</option>
+            <option value="german">German</option>
+            <option value="french">French</option>
+            <option value="italian">Italian</option>
+          </select>
+
+          <label for="region-select"><strong>Region flavor</strong></label>
+          <select id="region-select" class="toggle">
+            <option value="alps">Alps</option>
+            <option value="lake">Lake</option>
+            <option value="city">City</option>
+            <option value="mixed">Mixed Switzerland</option>
+          </select>
         </div>
 
         <div class="stack">
           <label for="mood-input"><strong>Mood notes</strong></label>
           <input id="mood-input" class="toggle" placeholder="e.g., calm sunrise, cozy, adventurous" />
-          <p class="small muted">Free-text mood hints are captured now and interpreted by the LLM planner in a later phase.</p>
+          <p class="small muted" id="preference-summary">You’re generating: Solo · English · Alps · Open mood.</p>
+          <p class="small muted" id="validation-hints">Tip: connect Spotify before generation to avoid auth errors.</p>
         </div>
 
         <div class="row">
@@ -183,13 +258,22 @@
           <button class="button button-ghost" id="refresh-trip">Refresh trip timing</button>
           <button class="button button-ghost" id="schedule-reminder">Schedule reminder</button>
         </div>
-        <p class="small muted" id="trip-action-status">Awaiting action.</p>
+        <p class="small muted live-region" id="trip-action-status" role="status" aria-live="polite">Awaiting action.</p>
       </section>
 
       <section class="card stack hidden" id="playlist-panel">
+        <img id="playlist-cover" class="playlist-cover hidden" alt="Generated playlist cover" />
         <h2 id="playlist-title">Playlist output</h2>
-        <p class="muted" id="playlist-message">Ready to generate when you are.</p>
+        <p class="muted" id="playlist-message" aria-live="polite">Ready to generate when you are.</p>
         <p class="small muted" id="playlist-meta">No generated playlist yet.</p>
+        <div id="playlist-story" class="small muted">Generate a playlist to see trip storytelling details.</div>
+        <div class="meta-grid" id="playlist-quality-meta"></div>
+        <div class="row" id="playlist-ctas">
+          <a class="button button-secondary hidden" id="open-spotify-link" target="_blank" rel="noreferrer">Open in Spotify</a>
+          <button class="button button-ghost hidden" id="copy-playlist-link" type="button">Copy link</button>
+          <a class="button button-ghost hidden" id="email-playlist-link">Email playlist</a>
+        </div>
+        <p class="small muted" id="playlist-cta-status"></p>
         <div class="stack" id="playlist-tracks"></div>
       </section>
 
