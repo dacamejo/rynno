@@ -174,6 +174,22 @@ test('feedback event creation validates supported eventType', async () => {
   });
 });
 
+
+test('feedback event creation accepts playlist generation telemetry event types', async () => {
+  await withServer(async (baseUrl) => {
+    const response = await fetch(`${baseUrl}/api/v1/feedback/events`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ eventType: 'generate_success', userId: 'ui-user-1', tripId: 'trip-1', outcome: 'success' })
+    });
+    const payload = await response.json();
+
+    assert.equal(response.status, 201);
+    assert.equal(payload.status, 'recorded');
+    assert.ok(payload.event);
+  });
+});
+
 test('feedback dashboard validates numeric days query', async () => {
   await withServer(async (baseUrl) => {
     const response = await fetch(`${baseUrl}/api/v1/feedback/dashboard?days=oops`);
