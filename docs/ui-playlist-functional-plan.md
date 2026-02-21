@@ -5,18 +5,20 @@
 ### ✅ Completed in latest implementation
 - **Step 1 complete:** Trip review CTA now calls `POST /api/v1/playlists/generate` using mapped trip + preference + Spotify context payloads. `trips/:tripId/refresh` is preserved as a separate “Refresh trip timing” action.
 - **Step 2 complete:** UI generation state machine is now implemented with explicit states (`idle`, `submitting`, `success`, `partial_success`, `error_auth`, `error_validation`, `error_network`), duplicate-submit prevention, user recovery prompts, and local per-trip cache restore for successful playlists.
+- **Step 3 complete:** Playlist panel now renders storytelling output from live API data (story description, metadata cards, richer track rows, and CTA actions for Spotify open/copy/email with graceful fallback states).
+- **Step 4 complete:** Playlist preferences are unified with companion/language/region/mood controls, inline generation summaries, pre-submit Spotify/trip validation hints, and accessible live-status micro-interactions.
 
 ### 🔄 Remaining work
-- **Step 3+ still in progress:** Expand storytelling presentation depth (cover image, richer metadata, output CTAs), preference polish, and observability/release-gate work.
+- **Step 5 still in progress:** Add telemetry events, contract/e2e coverage, and release-gate thresholds.
 
 ## Current evaluation
 
 Phase A work is now largely complete: the UI is wired to live playlist generation and includes explicit generation state handling with typed failure states and retry guidance.
 
 ### Remaining key gaps
-- **Storytelling depth is still limited** (cover art, richer metadata blocks, deep-link CTA set).
-- **Preference confidence UX needs polish** (inline summaries, stronger pre-submit hints, richer micro-interactions).
-- **No UI instrumentation loop tied to generation outcomes yet**.
+- **Frontend telemetry is not yet wired** to generation funnel outcomes.
+- **Contract/E2E coverage is still missing** for happy-path and auth-failure generation UI.
+- **Release gates are not codified yet** (success rate, median generation time, retry recovery targets).
 
 ## Top 5 next steps (priority order)
 
@@ -112,6 +114,6 @@ Phase A work is now largely complete: the UI is wired to live playlist generatio
 - [x] Generate button uses `/api/v1/playlists/generate` with valid payload and token context.
 - [x] Playlist panel renders real API response, not mock rows.
 - [x] Auth, validation, and network failure states are handled with explicit recovery actions.
-- [ ] Open-in-Spotify flow works on mobile viewport.
+- [x] Open-in-Spotify flow works on mobile viewport.
 - [ ] Frontend telemetry captures generation funnel outcomes.
 - [ ] E2E tests pass for happy path + one major failure path.

@@ -11,6 +11,10 @@ const playlistPanel = document.getElementById('playlist-panel');
 const tripSummary = document.getElementById('trip-summary');
 const companionChipsContainer = document.getElementById('companion-chips');
 const moodInput = document.getElementById('mood-input');
+const languageSelect = document.getElementById('language-select');
+const regionSelect = document.getElementById('region-select');
+const preferenceSummary = document.getElementById('preference-summary');
+const validationHints = document.getElementById('validation-hints');
 const tripActionStatus = document.getElementById('trip-action-status');
 const regeneratePlaylistButton = document.getElementById('regenerate-playlist');
 const refreshTripButton = document.getElementById('refresh-trip');
@@ -20,6 +24,13 @@ const spotifyUserIdInput = document.getElementById('spotify-user-id');
 const playlistTitle = document.getElementById('playlist-title');
 const playlistMessage = document.getElementById('playlist-message');
 const playlistMeta = document.getElementById('playlist-meta');
+const playlistStory = document.getElementById('playlist-story');
+const playlistQualityMeta = document.getElementById('playlist-quality-meta');
+const playlistCover = document.getElementById('playlist-cover');
+const openSpotifyLink = document.getElementById('open-spotify-link');
+const copyPlaylistLink = document.getElementById('copy-playlist-link');
+const emailPlaylistLink = document.getElementById('email-playlist-link');
+const playlistCtaStatus = document.getElementById('playlist-cta-status');
 const playlistTracks = document.getElementById('playlist-tracks');
 
 const SPOTIFY_AUTH_STORAGE_KEY = 'rynno.spotify.auth';
@@ -156,11 +167,36 @@ function renderCompanions() {
       }
 
       renderCompanions();
+      renderPreferenceSummary();
       tripActionStatus.textContent = `Updated companions: ${Array.from(selectedCompanions).join(', ')}`;
     });
 
     companionChipsContainer.appendChild(chip);
   });
+}
+
+function renderPreferenceSummary() {
+  const companions = Array.from(selectedCompanions).join(', ');
+  const language = languageSelect.value || 'english';
+  const region = regionSelect.value || 'alps';
+  const mood = moodInput.value.trim() || 'Open mood';
+  preferenceSummary.textContent = `You’re generating: ${companions} · ${capitalize(language)} · ${capitalize(region)} · ${mood}`;
+
+  const auth = readStoredSpotifyAuth();
+  if (!auth?.userId || !auth?.spotifyUserId) {
+    validationHints.textContent = 'Tip: connect Spotify before generation to avoid auth errors.';
+  } else if (!activeTripId) {
+    validationHints.textContent = 'Tip: load a shared trip before submitting generation.';
+  } else {
+    validationHints.textContent = 'Ready to generate with your selected playlist preferences.';
+  }
+}
+
+function capitalize(value = '') {
+  return value
+    .split(' ')
+    .map((part) => (part ? `${part[0].toUpperCase()}${part.slice(1)}` : part))
+    .join(' ');
 }
 
 async function requestJson(url, options = {}) {
@@ -211,25 +247,30 @@ function buildPlaylistRequestPayload() {
   const auth = readStoredSpotifyAuth();
   const companions = Array.from(selectedCompanions);
   const mood = moodInput.value.trim();
+  const language = languageSelect.value || 'english';
+  const region = regionSelect.value || 'alps';
+  const preferenceTags = normalizeTags([...companions, region]);
 
   const canonicalTrip = {
     ...(activeTripCanonical || {}),
     tripId: activeTripId,
-    tags: normalizeTags(companions),
+    tags: preferenceTags,
+    preferredLanguages: [language],
     metadata: {
       ...(activeTripCanonical?.metadata || {}),
       userId: auth?.userId || null,
       selectedCompanions: companions,
-      moodInput: mood || null
+      moodInput: mood || null,
+      regionPreference: region
     }
   };
 
   return {
     trip: canonicalTrip,
     preferences: {
-      tags: normalizeTags(companions),
+      tags: preferenceTags,
       moodHints: buildMoodHints(mood),
-      languagePreference: activeTripCanonical?.preferredLanguages?.[0] || null,
+      languagePreference: language,
       moodText: mood || null
     },
     spotify: {
@@ -241,24 +282,92 @@ function buildPlaylistRequestPayload() {
   };
 }
 
+function renderPlaylistCtas(playlist) {
+  playlistCtaStatus.textContent = '';
+  openSpotifyLink.classList.add('hidden');
+  copyPlaylistLink.classList.add('hidden');
+  emailPlaylistLink.classList.add('hidden');
+
+  if (!playlist?.playlistUrl) {
+    playlistCtaStatus.textContent = 'Spotify deep link unavailable for this playlist response.';
+    return;
+  }
+
+  openSpotifyLink.href = playlist.playlistUrl;
+  openSpotifyLink.classList.remove('hidden');
+  copyPlaylistLink.classList.remove('hidden');
+  emailPlaylistLink.classList.remove('hidden');
+  emailPlaylistLink.href = `mailto:?subject=${encodeURIComponent(playlist.playlistName || 'Your Rynno playlist')}&body=${encodeURIComponent(`Open your playlist: ${playlist.playlistUrl}`)}`;
+}
+
+function renderQualityMeta(playlist) {
+  playlistQualityMeta.innerHTML = '';
+  const trackCount = (playlist?.tracks || []).length;
+  const totalDurationMinutes = Math.max(
+    1,
+    Math.round((playlist?.tracks || []).reduce((sum, track) => sum + (track.durationMs || 0), 0) / 60000)
+  );
+  const guardrailTries = (playlist?.guardrailAttempts || []).length || 1;
+  const qualityItems = [
+    { label: 'Tracks', value: String(trackCount) },
+    { label: 'Duration', value: `${totalDurationMinutes} min` },
+    { label: 'Guardrail tries', value: String(guardrailTries) },
+    { label: 'Region flavor', value: capitalize(regionSelect.value || 'alps') }
+  ];
+
+  qualityItems.forEach((item) => {
+    const el = document.createElement('div');
+    el.className = 'meta-item';
+    el.innerHTML = `<strong>${item.label}</strong><br /><span class="small">${item.value}</span>`;
+    playlistQualityMeta.appendChild(el);
+  });
+}
+
 function renderPlaylistOutput(playlist) {
   if (!playlist) {
     playlistTitle.textContent = 'Playlist output';
     playlistMeta.textContent = 'No generated playlist yet.';
+    playlistStory.textContent = 'Generate a playlist to see trip storytelling details.';
+    playlistCover.classList.add('hidden');
+    renderPlaylistCtas(null);
+    playlistQualityMeta.innerHTML = '';
     playlistTracks.innerHTML = '';
     return;
   }
 
   playlistTitle.textContent = playlist.playlistName || 'Generated playlist';
   playlistMeta.textContent = playlist.playlistUrl || 'Playlist created. Open in Spotify from your account.';
+  playlistStory.textContent =
+    playlist.moodProfile?.playlistDescription ||
+    'Storyline unavailable. We still generated a route-aware playlist using your trip context.';
+  const coverUrl = playlist.images?.[0]?.url || playlist.coverImageUrl || null;
+  if (coverUrl) {
+    playlistCover.src = coverUrl;
+    playlistCover.classList.remove('hidden');
+  } else {
+    playlistCover.classList.add('hidden');
+  }
+  renderPlaylistCtas(playlist);
+  renderQualityMeta(playlist);
   playlistTracks.innerHTML = '';
 
-  (playlist.tracks || []).slice(0, 5).forEach((track) => {
+  (playlist.tracks || []).slice(0, 8).forEach((track) => {
     const row = document.createElement('div');
     row.className = 'track';
-    row.innerHTML = `<strong>${track.position}. ${track.name}</strong><br /><span class="small">${(track.artists || []).join(', ') || 'Unknown artist'}</span>`;
+    const tags = [
+      track.regionSurprise ? '<span class="quality-tag good">Regional surprise</span>' : '',
+      track.explicit ? '<span class="quality-tag warn">Explicit</span>' : '<span class="quality-tag">Clean leaning</span>'
+    ].join('');
+    row.innerHTML = `<strong>${track.position}. ${track.name}</strong><br /><span class="small">${(track.artists || []).join(', ') || 'Unknown artist'}</span><div>${tags}</div>`;
     playlistTracks.appendChild(row);
   });
+
+  if (!(playlist.tracks || []).length) {
+    const emptyState = document.createElement('div');
+    emptyState.className = 'track';
+    emptyState.textContent = 'No tracks were returned. Try adjusting preferences and regenerating.';
+    playlistTracks.appendChild(emptyState);
+  }
 }
 
 function renderGenerationState() {
@@ -274,6 +383,7 @@ function renderGenerationState() {
 
   regeneratePlaylistButton.textContent = buttonLabels[generationState] || 'Generate playlist';
   regeneratePlaylistButton.disabled = generationState === GENERATION_STATE.submitting;
+  regeneratePlaylistButton.setAttribute('aria-busy', String(generationState === GENERATION_STATE.submitting));
 
   const helperCopy = {
     [GENERATION_STATE.idle]: 'Ready to generate when you are.',
@@ -378,8 +488,18 @@ async function regeneratePlaylist() {
     return;
   }
 
+  const auth = readStoredSpotifyAuth();
+  if (!auth?.userId || !auth?.spotifyUserId) {
+    generationState = GENERATION_STATE.error_auth;
+    renderGenerationState();
+    renderPreferenceSummary();
+    tripActionStatus.textContent = 'Spotify is not connected. Connect Spotify and retry generation.';
+    return;
+  }
+
   generationState = GENERATION_STATE.submitting;
   renderGenerationState();
+  renderPreferenceSummary();
   tripActionStatus.textContent = 'Submitting playlist generation...';
 
   const idempotencyKey = `playlist-generate:${activeTripId}:${crypto.randomUUID()}`;
@@ -450,14 +570,30 @@ function openOauth() {
   window.location.assign(oauthUrl);
 }
 
+async function copyPlaylistUrl() {
+  if (!latestPlaylist?.playlistUrl) return;
+
+  try {
+    await navigator.clipboard.writeText(latestPlaylist.playlistUrl);
+    playlistCtaStatus.textContent = 'Playlist link copied.';
+  } catch {
+    playlistCtaStatus.textContent = 'Clipboard not available. Copy from the Open in Spotify link.';
+  }
+}
+
 simulateShareButton.addEventListener('click', simulateShareIngest);
 regeneratePlaylistButton.addEventListener('click', regeneratePlaylist);
 refreshTripButton.addEventListener('click', refreshTripTiming);
 scheduleReminderButton.addEventListener('click', scheduleReminder);
 openOauthButton.addEventListener('click', openOauth);
+copyPlaylistLink.addEventListener('click', copyPlaylistUrl);
+languageSelect.addEventListener('change', renderPreferenceSummary);
+regionSelect.addEventListener('change', renderPreferenceSummary);
+moodInput.addEventListener('input', renderPreferenceSummary);
 
 renderCompanions();
 renderGenerationState();
 setupServiceWorker();
 consumeSpotifyAuthCallback();
 renderSpotifyAuth(readStoredSpotifyAuth());
+renderPreferenceSummary();
