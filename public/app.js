@@ -32,10 +32,13 @@ const copyPlaylistLink = document.getElementById('copy-playlist-link');
 const emailPlaylistLink = document.getElementById('email-playlist-link');
 const playlistCtaStatus = document.getElementById('playlist-cta-status');
 const playlistTracks = document.getElementById('playlist-tracks');
+const recentJourneysContainer = document.getElementById('recent-journeys');
 const playlistContract = window.PlaylistContract;
 
 const SPOTIFY_AUTH_STORAGE_KEY = 'rynno.spotify.auth';
 const TRIP_PLAYLIST_CACHE_KEY = 'rynno.trip.playlist.cache.v1';
+const RECENT_JOURNEYS_STORAGE_KEY = 'rynno.recent.journeys.v1';
+const RECENT_JOURNEYS_LIMIT = 6;
 const COMPANIONS = ['Solo', 'Couple', 'Family', 'Kids', 'Friends'];
 const selectedCompanions = new Set(['Solo']);
 const tripTemplate = {
@@ -105,6 +108,62 @@ function readPlaylistForTrip(tripId) {
   if (!tripId) return null;
   const cache = readPlaylistCache();
   return cache[tripId]?.playlist || null;
+}
+
+function readRecentJourneys() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(RECENT_JOURNEYS_STORAGE_KEY) || '[]');
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveRecentJourneys(journeys) {
+  localStorage.setItem(RECENT_JOURNEYS_STORAGE_KEY, JSON.stringify(journeys));
+}
+
+function renderRecentJourneys() {
+  if (!recentJourneysContainer) return;
+
+  const journeys = readRecentJourneys();
+  recentJourneysContainer.innerHTML = '';
+
+  if (!journeys.length) {
+    const empty = document.createElement('div');
+    empty.className = 'track small muted';
+    empty.textContent = 'No recent journeys yet. Ingest a trip to start your history.';
+    recentJourneysContainer.appendChild(empty);
+    return;
+  }
+
+  journeys.forEach((journey) => {
+    const row = document.createElement('div');
+    row.className = 'track';
+    const summary = journey.playlistLabel ? `<span class="small">· ${journey.playlistLabel}</span>` : '';
+    row.innerHTML = `${journey.origin} → ${journey.destination} ${summary}`;
+    recentJourneysContainer.appendChild(row);
+  });
+}
+
+function upsertRecentJourney({ tripId, canonical, playlist }) {
+  if (!tripId || !canonical) return;
+
+  const origin = canonical?.route?.origin || 'Origin';
+  const destination = canonical?.route?.destination || 'Destination';
+  const playlistLabel = playlist?.playlistName || moodInput.value.trim() || null;
+  const journeys = readRecentJourneys().filter((item) => item.tripId !== tripId);
+
+  journeys.unshift({
+    tripId,
+    origin,
+    destination,
+    playlistLabel,
+    updatedAt: new Date().toISOString()
+  });
+
+  saveRecentJourneys(journeys.slice(0, RECENT_JOURNEYS_LIMIT));
+  renderRecentJourneys();
 }
 
 function renderSpotifyAuth(auth) {
@@ -409,9 +468,11 @@ function restoreCachedPlaylist() {
   if (latestPlaylist) {
     generationState = GENERATION_STATE.success;
     renderPlaylistOutput(latestPlaylist);
+    upsertRecentJourney({ tripId: activeTripId, canonical: activeTripCanonical, playlist: latestPlaylist });
   } else {
     generationState = GENERATION_STATE.idle;
     renderPlaylistOutput(null);
+    upsertRecentJourney({ tripId: activeTripId, canonical: activeTripCanonical, playlist: null });
   }
   renderGenerationState();
 }
@@ -508,6 +569,7 @@ async function regeneratePlaylist() {
 
     latestPlaylist = playlist;
     savePlaylistForTrip(activeTripId, playlist);
+    upsertRecentJourney({ tripId: activeTripId, canonical: activeTripCanonical, playlist });
     const hadGuardrailRecovery = (playlist.guardrailAttempts || []).some((attempt) => !attempt.pass);
     generationState = hadGuardrailRecovery ? GENERATION_STATE.partial_success : GENERATION_STATE.success;
     renderPlaylistOutput(playlist);
@@ -603,3 +665,4 @@ setupServiceWorker();
 consumeSpotifyAuthCallback();
 renderSpotifyAuth(readStoredSpotifyAuth());
 renderPreferenceSummary();
+renderRecentJourneys();
